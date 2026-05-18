@@ -27,6 +27,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/")
+def health_check():
+    return {"status": "ok", "app": "VolleyPacket"}
+
+
 app.include_router(templates.router, prefix="/templates", tags=["Templates"])
 app.include_router(upload.router, prefix="/upload", tags=["Upload & Parse"])
 app.include_router(generate.router, prefix="/generate", tags=["AI Generate"])
