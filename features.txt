@@ -1,8 +1,0 @@
-1. input tabulated data
-2. upload a pdf template (optional)
-3. generate pdfs
-4. send emails
-5. send sms
-4 & 5 - marketing platform... not like brevo or twilo... i could possibly make it a variable where the put smtp values or api values...
-
-i don't it to monitor interaction.... too much work.. the main product is the generator.

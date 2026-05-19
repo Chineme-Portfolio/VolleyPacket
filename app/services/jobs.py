@@ -12,7 +12,6 @@ import pandas as pd
 from app.models import TemplateConfig, TaskStatus, JobResponse
 from app.services.allocator import generate_combination_slots, allocate_combinations, assign_numbers, CAPACITY_PER_SLOT
 from app import config
-from app.database import db_available, save_job_to_db, load_all_jobs_from_db, delete_job_from_db
 
 logger = logging.getLogger(__name__)
 
@@ -188,16 +187,6 @@ class Job:
             if self.invalid_data is not None:
                 self.invalid_data.to_excel(os.path.join(folder, "invalid_data.xlsx"), index=False)
 
-        # Also persist to PostgreSQL when available
-        if db_available():
-            try:
-                candidates = None
-                if include_data and self.data is not None:
-                    candidates = self.data.fillna("").to_dict(orient="records")
-                save_job_to_db(self.to_dict(), candidates)
-            except Exception as e:
-                logger.warning("DB save failed for job %s: %s", self.job_id, e)
-
     @classmethod
     def from_folder(cls, folder_path: str) -> "Job":
         with open(os.path.join(folder_path, "job.json"), "r") as f:
@@ -229,49 +218,6 @@ class Job:
         job.valid_data = pd.read_excel(valid_path).fillna("") if os.path.isfile(valid_path) else None
         invalid_path = os.path.join(folder_path, "invalid_data.xlsx")
         job.invalid_data = pd.read_excel(invalid_path).fillna("") if os.path.isfile(invalid_path) else None
-
-        job.template = None
-        if job.template_id:
-            tpl_path = os.path.join(config.TEMPLATE_FOLDER, f"{job.template_id}.json")
-            if os.path.isfile(tpl_path):
-                with open(tpl_path, "r") as f:
-                    job.template = TemplateConfig(**json.load(f))
-
-        for task in job.tasks.values():
-            if task.status == "running":
-                task.status = "interrupted"
-                task.phase = "interrupted"
-
-        return job
-
-    @classmethod
-    def from_db_dict(cls, d: dict) -> "Job":
-        """Reconstruct a Job from a database dict (load_job_from_db output)."""
-        candidates = d.get("candidates", [])
-        data = pd.DataFrame(candidates).fillna("") if candidates else pd.DataFrame()
-
-        job = cls.__new__(cls)
-        job.job_id = d["job_id"]
-        job.status = d["status"]
-        job.created_at = datetime.fromisoformat(d["created_at"])
-        job.timestamp = d["timestamp"]
-        job.candidate_file = d["candidate_file"]
-        job.data = data
-        job.columns = d.get("columns", list(data.columns))
-        job.is_allocated = d.get("is_allocated", False)
-        job.allocated_path = d.get("allocated_path")
-        job.template_id = d.get("template_id")
-        job.pdf_folder = d.get("pdf_folder")
-        job.log_path = d.get("log_path")
-        job.cancelled = d.get("cancelled", False)
-        job.paused = d.get("paused", {k: False for k in ("pdfs", "emails", "sms", "photos")})
-        job._lock = threading.Lock()
-
-        job.tasks = {k: TaskStatus(**v) for k, v in d.get("tasks", {}).items()}
-
-        # valid/invalid data not stored in DB – will be None until re-validated
-        job.valid_data = None
-        job.invalid_data = None
 
         job.template = None
         if job.template_id:
@@ -389,23 +335,7 @@ def list_jobs() -> list[Job]:
 
 
 def load_all_jobs():
-    # If DATABASE_URL is set, load from PostgreSQL
-    if db_available():
-        logger.info("Loading jobs from database")
-        try:
-            rows = load_all_jobs_from_db()
-            for d in rows:
-                try:
-                    job = Job.from_db_dict(d)
-                    _jobs[job.job_id] = job
-                except Exception as e:
-                    logger.warning("Failed to load job %s from DB: %s", d.get("job_id"), e)
-            logger.info("Loaded %d jobs from database", len(_jobs))
-            return
-        except Exception as e:
-            logger.error("DB load failed, falling back to JSON files: %s", e)
-
-    # Fallback: load from JSON files on disk
+    """Load all jobs from JSON files on disk."""
     if not os.path.isdir(config.JOBS_FOLDER):
         return
     for entry in os.listdir(config.JOBS_FOLDER):

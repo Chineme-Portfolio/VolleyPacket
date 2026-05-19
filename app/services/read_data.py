@@ -29,20 +29,88 @@ def load_data(file_path):
         data_frame = pd.read_excel(file_path, header=header_row)
 
     data_frame.columns = data_frame.columns.str.strip()
-    col_map = {col: col.lower() for col in data_frame.columns}
-    data_frame = data_frame.rename(columns=col_map)
 
-    canonical = {
-        'name': 'Name', 'names': 'Name',
-        'examination number': 'ExamNo', 'exam number': 'ExamNo', 'examno': 'ExamNo',
-        'photo link': 'PhotoLink', 'photolink': 'PhotoLink',
-        'examination date': 'ExamDate', 'examdate': 'ExamDate',
-        'email address': 'Email', 'email': 'Email',
-        'phone number': 'PhoneNumber', 'phonenumber': 'PhoneNumber',
-    }
-    data_frame = data_frame.rename(columns={
-        col: canonical[col] for col in data_frame.columns if col in canonical
-    })
+    # --- Fuzzy column normalization ---
+    # Each canonical column has a list of keywords; if ANY keyword appears
+    # in the lowered column name, it maps to that canonical name.
+    # Order matters: first match wins, so more specific rules come first.
+
+    CANONICAL_RULES = [
+        ("ExamNo",      ["exam number", "examination number", "examno", "exam no"]),
+        ("ExamDate",    ["exam date", "examination date", "examdate", "exam_date"]),
+        ("PhotoLink",   ["photo link", "photolink", "photo_link", "photo url", "photo"]),
+        ("Email",       ["email"]),
+        ("PhoneNumber", ["phone", "mobile", "cell", "tel"]),
+    ]
+
+    # Name is special — we need to detect first/last splits
+    FIRST_NAME_KEYWORDS = ["first name", "firstname", "first_name", "given name", "forename"]
+    LAST_NAME_KEYWORDS  = ["last name", "lastname", "last_name", "surname", "family name"]
+    NAME_KEYWORDS        = ["name"]  # catch-all for single name column
+
+    rename_map = {}
+    first_name_col = None
+    last_name_col = None
+    matched_cols = set()
+
+    lowered = {col: col.strip().lower() for col in data_frame.columns}
+
+    # Pass 1: detect first name / last name columns
+    for orig, low in lowered.items():
+        if orig in matched_cols:
+            continue
+        for kw in FIRST_NAME_KEYWORDS:
+            if kw in low:
+                first_name_col = orig
+                matched_cols.add(orig)
+                break
+        for kw in LAST_NAME_KEYWORDS:
+            if kw in low:
+                last_name_col = orig
+                matched_cols.add(orig)
+                break
+
+    # Pass 2: detect a single "name" column (only if no first/last split)
+    if not first_name_col and not last_name_col:
+        for orig, low in lowered.items():
+            if orig in matched_cols:
+                continue
+            for kw in NAME_KEYWORDS:
+                if kw in low:
+                    rename_map[orig] = "Name"
+                    matched_cols.add(orig)
+                    break
+            if orig in matched_cols:
+                break
+
+    # Pass 3: match the rest of the canonical columns
+    for canonical, keywords in CANONICAL_RULES:
+        for orig, low in lowered.items():
+            if orig in matched_cols:
+                continue
+            for kw in keywords:
+                if kw in low:
+                    rename_map[orig] = canonical
+                    matched_cols.add(orig)
+                    break
+            if canonical in rename_map.values():
+                break
+
+    # Apply renames
+    data_frame = data_frame.rename(columns=rename_map)
+
+    # Merge first + last name into "Name"
+    if first_name_col and last_name_col:
+        data_frame["Name"] = (
+            data_frame[first_name_col].astype(str).str.strip()
+            + " "
+            + data_frame[last_name_col].astype(str).str.strip()
+        ).str.strip()
+        data_frame = data_frame.drop(columns=[first_name_col, last_name_col])
+    elif first_name_col:
+        data_frame = data_frame.rename(columns={first_name_col: "Name"})
+    elif last_name_col:
+        data_frame = data_frame.rename(columns={last_name_col: "Name"})
 
     data_frame = data_frame.fillna('')
 

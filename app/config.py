@@ -12,18 +12,17 @@ TEMPLATE_FOLDER = str(BASE_DIR / "templates")
 LOG_FOLDER = str(BASE_DIR / "logs")
 DATA_FOLDER = str(BASE_DIR / "data")
 JOBS_FOLDER = str(BASE_DIR / "data" / "jobs")
+DB_PATH = str(BASE_DIR / "data" / "volleypacket.db")
 
-SMTP_HOST = "smtp-relay.brevo.com"
-SMTP_PORT = 587
-SMTP_LOGIN = os.getenv("SMTP_LOGIN")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
-SENDER_NAME = os.getenv("SENDER_NAME", "Osalasi Company Limited")
-SENDER_EMAIL = os.getenv("SENDER_EMAIL")
+# Auth
+SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-change-in-production")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRY_HOURS = 24
 
-BULKSMS_API_URL = "https://www.bulksmsnigeria.com/api/v2/sms"
-BULKSMS_API_TOKEN = os.getenv("BULKSMS_API_TOKEN")
+# Encryption key for stored credentials (Fernet key, 32 bytes base64-encoded)
+# Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
 
-BREVO_API_KEY = os.getenv("BREVO_API_KEY")
-BREVO_EVENTS_URL = "https://api.brevo.com/v3/smtp/statistics/events"
-
+# APIs
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")

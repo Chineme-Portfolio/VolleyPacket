@@ -22,5 +22,8 @@ anthropic
 beautifulsoup4
 PyPDF2
 python-docx
+resend
 sqlalchemy
-psycopg2-binary
+bcrypt
+PyJWT
+cryptography
