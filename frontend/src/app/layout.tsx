@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import Sidebar from "@/components/Sidebar";
-import Topbar from "@/components/Topbar";
+import { AuthProvider } from "@/lib/auth";
+import AppShell from "@/components/AppShell";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -11,7 +11,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "VolleyPacket",
-  description: "Exam invitation letter generator and sender",
+  description: "Batch email and document generation platform",
 };
 
 export default function RootLayout({
@@ -21,12 +21,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${inter.variable} h-full`}>
-      <body className="min-h-full flex font-[family-name:var(--font-inter)]">
-        <Sidebar />
-        <div className="flex-1 flex flex-col ml-60">
-          <Topbar />
-          <main className="flex-1 p-8 overflow-auto">{children}</main>
-        </div>
+      <body className="min-h-full font-[family-name:var(--font-inter)]">
+        <AuthProvider>
+          <AppShell>{children}</AppShell>
+        </AuthProvider>
       </body>
     </html>
   );

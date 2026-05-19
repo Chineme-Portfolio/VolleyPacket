@@ -11,6 +11,7 @@ const menuItems = [
 
 const generalItems = [
   { name: "Settings", href: "/settings", icon: SettingsIcon },
+  { name: "Setup Guides", href: "/guides", icon: GuidesIcon },
 ];
 
 export default function Sidebar() {
@@ -122,6 +123,16 @@ function SettingsIcon({ active }: { active: boolean }) {
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="3" />
       <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+    </svg>
+  );
+}
+
+function GuidesIcon({ active }: { active: boolean }) {
+  const color = active ? "white" : "#6b7280";
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 16v-4M12 8h.01" />
     </svg>
   );
 }

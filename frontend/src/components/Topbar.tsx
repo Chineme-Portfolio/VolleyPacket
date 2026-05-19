@@ -1,6 +1,14 @@
 "use client";
 
+import { useAuth } from "@/lib/auth";
+
 export default function Topbar() {
+  const { user, logout } = useAuth();
+
+  const initials = user?.email
+    ? user.email.slice(0, 2).toUpperCase()
+    : "VP";
+
   return (
     <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-8">
       {/* Search */}
@@ -29,11 +37,18 @@ export default function Topbar() {
         {/* User */}
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-full bg-green-700 flex items-center justify-center text-white text-sm font-semibold">
-            VP
+            {initials}
           </div>
           <div className="hidden lg:block">
-            <p className="text-sm font-semibold text-gray-900">VolleyPacket</p>
-            <p className="text-xs text-gray-500">Admin</p>
+            <p className="text-sm font-semibold text-gray-900 max-w-[160px] truncate">
+              {user?.email || "VolleyPacket"}
+            </p>
+            <button
+              onClick={logout}
+              className="text-xs text-gray-500 hover:text-red-600 transition-colors"
+            >
+              Sign out
+            </button>
           </div>
         </div>
       </div>

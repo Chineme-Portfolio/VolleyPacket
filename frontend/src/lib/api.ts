@@ -1,7 +1,20 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+function getAuthHeaders(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const token = localStorage.getItem("vp_token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export async function fetchAPI(path: string, options?: RequestInit) {
-  const res = await fetch(`${API_BASE}${path}`, options);
+  const authHeaders = getAuthHeaders();
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      ...authHeaders,
+      ...options?.headers,
+    },
+  });
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(error.detail || "API request failed");
