@@ -27,3 +27,4 @@ sqlalchemy
 bcrypt
 PyJWT
 cryptography
+email-validator
