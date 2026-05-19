@@ -13,12 +13,9 @@ LOG_FOLDER = str(BASE_DIR / "logs")
 DATA_FOLDER = str(BASE_DIR / "data")
 JOBS_FOLDER = str(BASE_DIR / "data" / "jobs")
 
-SMTP_HOST = "smtp-relay.brevo.com"
-SMTP_PORT = 587
-SMTP_LOGIN = os.getenv("SMTP_LOGIN")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
+RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 SENDER_NAME = os.getenv("SENDER_NAME", "Osalasi Company Limited")
-SENDER_EMAIL = os.getenv("SENDER_EMAIL")
+SENDER_EMAIL = os.getenv("SENDER_EMAIL", "onboarding@resend.dev")
 
 BULKSMS_API_URL = "https://www.bulksmsnigeria.com/api/v2/sms"
 BULKSMS_API_TOKEN = os.getenv("BULKSMS_API_TOKEN")
