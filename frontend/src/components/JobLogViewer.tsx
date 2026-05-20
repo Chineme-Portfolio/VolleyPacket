@@ -74,7 +74,7 @@ export default function JobLogViewer({ jobId }: JobLogViewerProps) {
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden max-w-full">
       {/* Header + Tabs */}
       <div className="px-6 pt-5 pb-0">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Job Logs</h3>
@@ -96,7 +96,7 @@ export default function JobLogViewer({ jobId }: JobLogViewerProps) {
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto min-w-0">
         {logLoading ? (
           <div className="flex items-center justify-center py-12">
             <div className="w-6 h-6 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />

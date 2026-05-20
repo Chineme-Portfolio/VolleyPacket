@@ -133,6 +133,10 @@ class Job:
         }
         self._lock = threading.Lock()
 
+        # Job mode: "dynamic_pdf", "static_attachment", "email_only"
+        self.job_mode = "dynamic_pdf"
+        self.static_attachment_path = None
+
         # Logs
         self.log_path = None
 
@@ -145,6 +149,7 @@ class Job:
             columns=self.columns,
             template_id=self.template_id,
             is_allocated=self.is_allocated,
+            job_mode=self.job_mode,
             tasks=self.tasks,
         )
 

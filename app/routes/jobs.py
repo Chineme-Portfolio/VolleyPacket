@@ -3,7 +3,7 @@ import csv
 import json
 import uuid
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query, Depends
 from fastapi.responses import FileResponse
 
 import pandas as pd
@@ -16,11 +16,34 @@ from app.services.email_tasks import start_email_send
 from app.services.sms_tasks import start_sms_send
 from app.services.photo_tasks import start_photo_download
 from app.services.report_tasks import generate_report
+from app.dependencies import get_current_user
+from app.database import UserRow, EmailSettingsRow, get_session
+from app.services.encryption import decrypt_credentials
+from app.services.email_providers import create_provider
 from app import config
 
 router = APIRouter()
 
 VALID_TASKS = ("pdfs", "emails", "sms", "photos")
+
+
+def _get_user_provider(user: UserRow):
+    """Fetch and instantiate the user's configured email provider."""
+    session = get_session()
+    try:
+        settings = session.get(EmailSettingsRow, user.id)
+    finally:
+        session.close()
+
+    if not settings:
+        raise HTTPException(
+            status_code=400,
+            detail="No email provider configured. Go to Settings > Email Provider to set one up.",
+        )
+
+    credentials = decrypt_credentials(settings.credentials_encrypted)
+    provider = create_provider(settings.provider_name, credentials)
+    return provider, settings
 
 
 # --- LIST JOBS ---
@@ -201,6 +224,44 @@ def attach_template(job_id: str, request: AttachTemplateRequest):
     return {"message": "Template attached", "template_id": job.template_id}
 
 
+# --- SET JOB MODE ---
+
+@router.post("/{job_id}/mode")
+async def set_job_mode(
+    job_id: str,
+    mode: str = Form(...),
+    static_attachment: UploadFile = File(None),
+):
+    """
+    Set the job mode:
+      - email_only: just send emails, no attachments
+      - static_attachment: same file attached to every email
+      - dynamic_pdf: generate a unique PDF per recipient (default)
+    """
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    valid_modes = ("email_only", "static_attachment", "dynamic_pdf")
+    if mode not in valid_modes:
+        raise HTTPException(status_code=400, detail=f"Invalid mode. Must be one of: {valid_modes}")
+
+    job.job_mode = mode
+
+    if mode == "static_attachment" and static_attachment:
+        os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
+        file_id = str(uuid.uuid4())[:8]
+        ext = os.path.splitext(static_attachment.filename)[1].lower()
+        save_path = os.path.join(config.UPLOAD_FOLDER, f"attachment_{file_id}{ext}")
+        content = await static_attachment.read()
+        with open(save_path, "wb") as f:
+            f.write(content)
+        job.static_attachment_path = save_path
+
+    job.save()
+    return {"message": f"Job mode set to '{mode}'", "job_mode": mode}
+
+
 # --- ALLOCATE ---
 
 @router.post("/{job_id}/allocate")
@@ -277,23 +338,32 @@ def download_pdfs(job_id: str):
 # --- SEND EMAILS ---
 
 @router.post("/{job_id}/emails/send")
-def send_emails(job_id: str):
+def send_emails(job_id: str, user: UserRow = Depends(get_current_user)):
     job = get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    if not job.template:
-        raise HTTPException(status_code=400, detail="No template attached")
-    if not job.is_allocated:
-        raise HTTPException(status_code=400, detail="Data not allocated")
 
-    pdf_task = job.tasks["pdfs"]
-    if pdf_task.status != "complete":
-        raise HTTPException(status_code=400, detail="Generate PDFs first before sending emails")
+    job_mode = getattr(job, "job_mode", "dynamic_pdf")
+
+    if job_mode == "dynamic_pdf":
+        if not job.template:
+            raise HTTPException(status_code=400, detail="No template attached")
+        if not job.is_allocated:
+            raise HTTPException(status_code=400, detail="Data not allocated")
+        pdf_task = job.tasks["pdfs"]
+        if pdf_task.status != "complete":
+            raise HTTPException(status_code=400, detail="Generate PDFs first before sending emails")
+    elif job_mode == "static_attachment":
+        if not job.template:
+            raise HTTPException(status_code=400, detail="No template/email config attached")
+    # email_only: no extra checks
 
     if job.tasks["emails"].status == "running":
         raise HTTPException(status_code=409, detail="Email send already running")
 
-    start_email_send(job)
+    provider, settings = _get_user_provider(user)
+
+    start_email_send(job, provider, from_name=settings.from_name, from_email=settings.from_email)
     return {"message": "Email send started", "total": job.tasks["emails"].total}
 
 
@@ -367,36 +437,6 @@ def get_report(job_id: str):
 
     try:
         report_path = generate_report(job)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Report generation failed: {e}")
-
-    return FileResponse(
-        report_path,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename=f"report_{job_id}.xlsx",
-    )
-
-
-@router.post("/{job_id}/report")
-async def get_report_with_brevo(job_id: str, brevo_log: UploadFile = File(None)):
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    email_task = job.tasks["emails"]
-    if email_task.status != "complete":
-        raise HTTPException(status_code=409, detail="Emails not sent yet — send emails first")
-
-    brevo_csv_path = None
-    if brevo_log:
-        os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
-        brevo_csv_path = os.path.join(config.UPLOAD_FOLDER, f"brevo_{job_id}.csv")
-        content = await brevo_log.read()
-        with open(brevo_csv_path, "wb") as f:
-            f.write(content)
-
-    try:
-        report_path = generate_report(job, brevo_csv_path=brevo_csv_path)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Report generation failed: {e}")
 
