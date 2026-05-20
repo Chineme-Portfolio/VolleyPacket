@@ -22,9 +22,17 @@ interface ChatMessage {
   templateData?: Record<string, unknown>;
 }
 
+const FILTERS = [
+  { key: "all", label: "All" },
+  { key: "mine", label: "My Templates" },
+  { key: "public", label: "Community" },
+  { key: "system", label: "VolleyPacket" },
+];
+
 export default function TemplatesPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeFilter, setActiveFilter] = useState("all");
 
   // AI builder state
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -43,12 +51,17 @@ export default function TemplatesPage() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    getTemplates()
+  function loadTemplates(filter?: string) {
+    setLoading(true);
+    getTemplates(filter || activeFilter)
       .then(setTemplates)
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }
+
+  useEffect(() => {
+    loadTemplates();
+  }, [activeFilter]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -152,8 +165,7 @@ export default function TemplatesPage() {
         text: `Template saved! It's now available in your library. You can preview it or use it in a new job.`,
       });
       setGeneratedTemplate(null);
-      const updated = await getTemplates();
-      setTemplates(updated);
+      loadTemplates();
     } catch (err) {
       addMessage({
         role: "assistant",
@@ -183,8 +195,25 @@ export default function TemplatesPage() {
       {/* Template Gallery */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-6">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-semibold text-gray-900">Your Templates</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Templates</h2>
           <span className="text-sm text-gray-400">{templates.length} template{templates.length !== 1 ? "s" : ""}</span>
+        </div>
+
+        {/* Filter tabs */}
+        <div className="flex gap-1 mb-5 border-b border-gray-100 pb-0">
+          {FILTERS.map((f) => (
+            <button
+              key={f.key}
+              onClick={() => setActiveFilter(f.key)}
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                activeFilter === f.key
+                  ? "bg-green-50 text-green-800 border-b-2 border-green-700"
+                  : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
         </div>
 
         {loading ? (
@@ -203,7 +232,7 @@ export default function TemplatesPage() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {templates.map((t) => (
-              <TemplateCard key={t.id} template={t} />
+              <TemplateCard key={t.id} template={t} onUpdate={() => loadTemplates()} />
             ))}
           </div>
         )}

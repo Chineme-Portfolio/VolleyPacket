@@ -31,6 +31,11 @@ export interface Template {
   id: string;
   name: string;
   description: string;
+  owner_id: string | null;
+  owner_name: string;
+  visibility: string;
+  tier_required: string;
+  is_own: boolean;
 }
 
 export interface TaskStatus {
@@ -230,4 +235,70 @@ export async function getJobLog(
   offset = 0
 ): Promise<LogData> {
   return fetchJSON(`/jobs/${jobId}/logs/${logKey}?limit=${limit}&offset=${offset}`);
+}
+
+
+// ── Templates (with ownership) ───────────────────────────────────────
+
+export async function getTemplates(filter: string = "all"): Promise<Template[]> {
+  return fetchJSON(`/templates?filter=${filter}`);
+}
+
+export async function getTemplate(templateId: string): Promise<Record<string, unknown>> {
+  return fetchJSON(`/templates/${templateId}`);
+}
+
+export async function deleteTemplate(templateId: string): Promise<{ message: string }> {
+  return fetchJSON(`/templates/${templateId}`, { method: "DELETE" });
+}
+
+export async function updateTemplateVisibility(
+  templateId: string,
+  visibility: string,
+): Promise<{ message: string; visibility: string }> {
+  return fetchJSON(`/templates/${templateId}/visibility`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ visibility }),
+  });
+}
+
+
+// ── Billing ──────────────────────────────────────────────────────────
+
+export interface TierInfo {
+  name: string;
+  price_monthly: number;
+  features: string[];
+  max_active_jobs: number | null;
+  ai_chat_messages: number | null;
+  can_publish_templates: boolean;
+}
+
+export interface Subscription {
+  tier: string;
+  status: string;
+  cancel_at_period_end: boolean;
+  current_period_end: string | null;
+  stripe_customer_id: string | null;
+}
+
+export async function getTiers(): Promise<Record<string, TierInfo>> {
+  return fetchJSON("/billing/tiers");
+}
+
+export async function getSubscription(): Promise<Subscription> {
+  return fetchJSON("/billing/subscription");
+}
+
+export async function createCheckout(tier: string): Promise<{ checkout_url: string }> {
+  return fetchJSON("/billing/checkout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tier }),
+  });
+}
+
+export async function createPortalSession(): Promise<{ portal_url: string }> {
+  return fetchJSON("/billing/portal", { method: "POST" });
 }

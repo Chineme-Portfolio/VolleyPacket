@@ -7,6 +7,7 @@ interface User {
   id: string;
   email: string;
   auth_provider: string;
+  tier: string;
 }
 
 interface AuthContextType {

@@ -11,6 +11,7 @@ const menuItems = [
 
 const generalItems = [
   { name: "Settings", href: "/settings", icon: SettingsIcon },
+  { name: "Billing", href: "/settings/billing", icon: BillingIcon },
   { name: "Setup Guides", href: "/guides", icon: GuidesIcon },
 ];
 
@@ -123,6 +124,16 @@ function SettingsIcon({ active }: { active: boolean }) {
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="3" />
       <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+    </svg>
+  );
+}
+
+function BillingIcon({ active }: { active: boolean }) {
+  const color = active ? "white" : "#6b7280";
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+      <line x1="1" y1="10" x2="23" y2="10" />
     </svg>
   );
 }

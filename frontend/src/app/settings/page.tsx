@@ -8,7 +8,12 @@ const settingSections = [
     description: "Connect your email service (Resend, SendGrid, Gmail, Zoho, or custom SMTP).",
     href: "/settings/email",
     icon: EmailIcon,
-    configured: false,
+  },
+  {
+    title: "Billing & Subscription",
+    description: "Manage your plan, view usage, and update payment details.",
+    href: "/settings/billing",
+    icon: BillingIcon,
   },
 ];
 
@@ -43,6 +48,15 @@ export default function SettingsPage() {
         ))}
       </div>
     </div>
+  );
+}
+
+function BillingIcon() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#047857" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+      <line x1="1" y1="10" x2="23" y2="10" />
+    </svg>
   );
 }
 
