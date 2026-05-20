@@ -5,6 +5,7 @@ import uuid
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query, Depends
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 import pandas as pd
 
@@ -260,6 +261,25 @@ async def set_job_mode(
 
     job.save()
     return {"message": f"Job mode set to '{mode}'", "job_mode": mode}
+
+
+# --- SET EMAIL CONTENT ---
+
+class EmailContentRequest(BaseModel):
+    subject: str
+    body: str  # HTML with placeholders like {Name}, {Email}
+
+
+@router.post("/{job_id}/email-content")
+def set_email_content(job_id: str, req: EmailContentRequest):
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job.email_subject = req.subject
+    job.email_body = req.body
+    job.save()
+    return {"message": "Email content saved"}
 
 
 # --- ALLOCATE ---

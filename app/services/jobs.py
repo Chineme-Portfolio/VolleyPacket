@@ -137,6 +137,10 @@ class Job:
         self.job_mode = "dynamic_pdf"
         self.static_attachment_path = None
 
+        # Email content (customizable per job)
+        self.email_subject = ""
+        self.email_body = ""  # HTML with {Name}, {Email}, {ExamNo} placeholders
+
         # Logs
         self.log_path = None
 
@@ -150,6 +154,8 @@ class Job:
             template_id=self.template_id,
             is_allocated=self.is_allocated,
             job_mode=getattr(self, "job_mode", "dynamic_pdf"),
+            email_subject=getattr(self, "email_subject", ""),
+            email_body=getattr(self, "email_body", ""),
             tasks=self.tasks,
         )
 
@@ -175,6 +181,10 @@ class Job:
             "cancelled": self.cancelled,
             "paused": self.paused,
             "tasks": {k: v.model_dump() for k, v in self.tasks.items()},
+            "job_mode": getattr(self, "job_mode", "dynamic_pdf"),
+            "static_attachment_path": getattr(self, "static_attachment_path", None),
+            "email_subject": getattr(self, "email_subject", ""),
+            "email_body": getattr(self, "email_body", ""),
         }
 
     def save(self, include_data=False):
@@ -223,6 +233,11 @@ class Job:
         job.valid_data = pd.read_excel(valid_path).fillna("") if os.path.isfile(valid_path) else None
         invalid_path = os.path.join(folder_path, "invalid_data.xlsx")
         job.invalid_data = pd.read_excel(invalid_path).fillna("") if os.path.isfile(invalid_path) else None
+
+        job.job_mode = d.get("job_mode", "dynamic_pdf")
+        job.static_attachment_path = d.get("static_attachment_path")
+        job.email_subject = d.get("email_subject", "")
+        job.email_body = d.get("email_body", "")
 
         job.template = None
         if job.template_id:

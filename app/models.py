@@ -136,4 +136,6 @@ class JobResponse(BaseModel):
     template_id: Optional[str] = None
     is_allocated: bool = False
     job_mode: str = "dynamic_pdf"  # "dynamic_pdf", "static_attachment", "email_only"
+    email_subject: str = ""
+    email_body: str = ""
     tasks: dict[str, TaskStatus] = {}

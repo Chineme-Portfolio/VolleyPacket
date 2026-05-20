@@ -8,6 +8,37 @@ from app.services.email_providers import EmailProvider, EmailMessage
 from app import config
 
 
+DEFAULT_EMAIL_BODY = """<html>
+<body style="font-family: Arial, sans-serif; color: #2C2C2C; line-height: 1.6;">
+  <p>Dear {Name},</p>
+  <p>Please find your document attached to this email.</p>
+  <p>If you have any questions, please do not hesitate to reach out.</p>
+  <p>Best regards,<br>
+  <strong>{sender_name}</strong></p>
+</body>
+</html>"""
+
+
+def _render_body(template_html: str, row_dict: dict, sender_name: str, sender_title: str) -> str:
+    """Replace placeholders in the email body with row values and sender info."""
+    body = template_html
+    # Replace known placeholders
+    body = body.replace("{sender_name}", sender_name)
+    body = body.replace("{sender_title}", sender_title)
+    # Replace any column-based placeholders like {Name}, {Email}, {ExamNo}, etc.
+    for key, val in row_dict.items():
+        body = body.replace(f"{{{key}}}", str(val))
+    return body
+
+
+def _render_subject(template_subject: str, row_dict: dict) -> str:
+    """Replace placeholders in the subject line with row values."""
+    subject = template_subject
+    for key, val in row_dict.items():
+        subject = subject.replace(f"{{{key}}}", str(val))
+    return subject
+
+
 def run_email_send(job: Job, provider: EmailProvider, from_name: str, from_email: str):
     task = job.tasks["emails"]
     data = job.valid_data if job.valid_data is not None else job.data
@@ -18,6 +49,18 @@ def run_email_send(job: Job, provider: EmailProvider, from_name: str, from_email
     job_mode = getattr(job, "job_mode", "dynamic_pdf")
     pdf_folder = job.get_pdf_folder() if job_mode == "dynamic_pdf" else None
     static_attachment_path = getattr(job, "static_attachment_path", None)
+
+    # Email content — use job's custom content or defaults
+    email_subject_tpl = getattr(job, "email_subject", "") or "Message for {Name}"
+    email_body_tpl = getattr(job, "email_body", "") or DEFAULT_EMAIL_BODY
+
+    # Sender info for template
+    if job.template and job.template.signature:
+        sig_name = job.template.signature.name or from_name
+        sig_title = job.template.signature.title or ""
+    else:
+        sig_name = from_name
+        sig_title = ""
 
     os.makedirs(config.LOG_FOLDER, exist_ok=True)
     log_path = os.path.join(config.LOG_FOLDER, f"run_{job.timestamp}.csv")
@@ -53,7 +96,7 @@ def run_email_send(job: Job, provider: EmailProvider, from_name: str, from_email
                     "Error": "",
                 }
 
-                # --- Build the email based on job mode ---
+                # --- Build attachment based on job mode ---
                 attachment_filename = None
                 attachment_bytes = None
 
@@ -83,31 +126,9 @@ def run_email_send(job: Job, provider: EmailProvider, from_name: str, from_email
                 else:  # email_only
                     entry["PDFGenerated"] = "N/A"
 
-                # --- Build email body ---
-                if job.template and job.template.signature:
-                    sig_name = job.template.signature.name
-                    sig_title = job.template.signature.title
-                    subject_line = f"{job.template.subject} — {name}" if job.template.subject else f"Message for {name}"
-                else:
-                    sig_name = from_name
-                    sig_title = ""
-                    subject_line = f"Message for {name}"
-
-                body_html = f"""
-                <html>
-                  <body style="font-family: Arial, sans-serif; color: #2C2C2C; line-height: 1.5;">
-                    <p>Dear {name},</p>
-                    <p>Please find attached your examination invitation letter with all details
-                    including your assigned date, time slot, hall, and examination centre.</p>
-                    <p>Please download, print, and bring the attached letter to the examination venue
-                    along with a valid means of identification.</p>
-                    <p>We wish you success.</p>
-                    <p>Yours faithfully,<br>
-                    <strong>{sig_name}</strong><br>
-                    <em>{sig_title}</em></p>
-                  </body>
-                </html>
-                """
+                # --- Render email content with placeholders ---
+                subject_line = _render_subject(email_subject_tpl, row_dict)
+                body_html = _render_body(email_body_tpl, row_dict, sig_name, sig_title)
 
                 try:
                     message = EmailMessage(
