@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import JobLogViewer from "@/components/JobLogViewer";
+import JobModeSelector from "@/components/JobModeSelector";
+import EmailComposer from "@/components/EmailComposer";
 import {
   getJob,
   cancelJob,
@@ -15,6 +17,7 @@ import {
   pauseTask,
   resumeTask,
   reuploadData,
+  setJobMode,
   getPdfDownloadUrl,
   getReportUrl,
   Job,
@@ -122,10 +125,12 @@ export default function JobDetailPage() {
   }
 
   const isTerminal = job.status === "cancelled" || job.status === "failed";
-  const canAllocate = !job.is_allocated && !isTerminal;
+  const jobMode = job.job_mode || "dynamic_pdf";
+  const canAllocate = !job.is_allocated && !isTerminal && jobMode === "dynamic_pdf";
   const canStartPdfs = job.is_allocated && job.template_id && job.tasks?.pdfs?.status !== "running";
   const pdfsComplete = job.tasks?.pdfs?.status === "complete";
   const emailsComplete = job.tasks?.emails?.status === "complete";
+  const hasRunning = Object.values(job.tasks || {}).some((t) => t.status === "running");
 
   return (
     <div>
@@ -205,6 +210,33 @@ export default function JobDetailPage() {
         </div>
       )}
 
+      {/* Job mode selector */}
+      {!isTerminal && (
+        <div className="mb-6">
+          <JobModeSelector
+            currentMode={jobMode}
+            onModeChange={async (mode, file) => {
+              await setJobMode(jobId, mode, file);
+              await loadJob();
+            }}
+            disabled={hasRunning}
+          />
+        </div>
+      )}
+
+      {/* Email composer */}
+      {!isTerminal && (
+        <div className="mb-6">
+          <EmailComposer
+            jobId={jobId}
+            columns={job.columns}
+            initialSubject={job.email_subject || ""}
+            initialBody={job.email_body || ""}
+            onSaved={() => loadJob()}
+          />
+        </div>
+      )}
+
       {/* Task panels */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
         {(["pdfs", "emails", "sms", "photos"] as const).map((taskKey) => {
@@ -217,9 +249,19 @@ export default function JobDetailPage() {
           const isComplete = task.status === "complete";
           const progressPct = task.total > 0 ? Math.round((task.progress / task.total) * 100) : 0;
 
+          // Skip PDF panel if not in dynamic_pdf mode
+          if (taskKey === "pdfs" && jobMode !== "dynamic_pdf") return null;
+
           let canStart = false;
           if (taskKey === "pdfs") canStart = !!canStartPdfs && !isRunning && !isComplete;
-          if (taskKey === "emails") canStart = !!pdfsComplete && !isRunning && !isComplete;
+          if (taskKey === "emails") {
+            if (jobMode === "dynamic_pdf") {
+              canStart = !!pdfsComplete && !isRunning && !isComplete;
+            } else {
+              // email_only or static_attachment: can start immediately
+              canStart = !isRunning && !isComplete;
+            }
+          }
           if (taskKey === "sms") canStart = job.is_allocated && !isRunning && !isComplete;
           if (taskKey === "photos") canStart = job.is_allocated && !isRunning && !isComplete;
 

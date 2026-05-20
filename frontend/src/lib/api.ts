@@ -63,6 +63,9 @@ export interface Job {
   columns: string[];
   template_id: string | null;
   is_allocated: boolean;
+  job_mode: string;
+  email_subject: string;
+  email_body: string;
   tasks: Record<string, TaskStatus>;
 }
 
@@ -297,4 +300,45 @@ export async function createCheckout(tier: string): Promise<{ checkout_url: stri
 
 export async function createPortalSession(): Promise<{ portal_url: string }> {
   return fetchJSON("/billing/portal", { method: "POST" });
+}
+
+
+// ── Job Mode & Email Content ─────────────────────────────────────────
+
+export async function setJobMode(
+  jobId: string,
+  mode: string,
+  staticAttachment?: File,
+): Promise<{ message: string; job_mode: string }> {
+  const form = new FormData();
+  form.append("mode", mode);
+  if (staticAttachment) {
+    form.append("static_attachment", staticAttachment);
+  }
+  const res = await fetchAPI(`/jobs/${jobId}/mode`, { method: "POST", body: form });
+  return res.json();
+}
+
+export async function setEmailContent(
+  jobId: string,
+  subject: string,
+  body: string,
+): Promise<{ message: string }> {
+  return fetchJSON(`/jobs/${jobId}/email-content`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ subject, body }),
+  });
+}
+
+export async function generateEmailAI(
+  prompt: string,
+  columns: string[],
+  context?: string,
+): Promise<{ subject: string; body: string }> {
+  return fetchJSON("/ai-email/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, columns, context: context || "" }),
+  });
 }
