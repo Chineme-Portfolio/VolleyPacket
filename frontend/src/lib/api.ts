@@ -16,6 +16,12 @@ export async function fetchAPI(path: string, options?: RequestInit) {
     },
   });
   if (!res.ok) {
+    // Auto-logout on 401 (expired/invalid token)
+    if (res.status === 401 && typeof window !== "undefined") {
+      localStorage.removeItem("vp_token");
+      window.location.href = "/login";
+      throw new Error("Session expired. Please log in again.");
+    }
     const error = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(error.detail || "API request failed");
   }
@@ -80,11 +86,7 @@ export async function getJob(jobId: string): Promise<Job> {
 export async function uploadDocument(file: File): Promise<UploadResponse> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${API_BASE}/upload`, { method: "POST", body: form });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || "Upload failed");
-  }
+  const res = await fetchAPI("/upload", { method: "POST", body: form });
   return res.json();
 }
 
@@ -132,11 +134,7 @@ export async function createJob(file: File, isAllocated = false): Promise<Job> {
   const form = new FormData();
   form.append("candidate_file", file);
   form.append("is_allocated", String(isAllocated));
-  const res = await fetch(`${API_BASE}/jobs`, { method: "POST", body: form });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || "Failed to create job");
-  }
+  const res = await fetchAPI("/jobs", { method: "POST", body: form });
   return res.json();
 }
 
@@ -191,11 +189,7 @@ export async function reuploadData(jobId: string, file: File, isAllocated = fals
   const form = new FormData();
   form.append("candidate_file", file);
   form.append("is_allocated", String(isAllocated));
-  const res = await fetch(`${API_BASE}/jobs/${jobId}/data`, { method: "POST", body: form });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || "Re-upload failed");
-  }
+  const res = await fetchAPI(`/jobs/${jobId}/data`, { method: "POST", body: form });
   return res.json();
 }
 

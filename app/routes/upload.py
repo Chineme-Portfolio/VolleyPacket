@@ -1,17 +1,21 @@
 import os
 import uuid
 
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 
 from app.models import UploadResponse
 from app.services.document_parser import parse_file
+from app.dependencies import get_current_user
+from app.database import UserRow
 from app import config
 
 router = APIRouter()
 
+MAX_UPLOAD_SIZE = 25 * 1024 * 1024  # 25 MB
+
 
 @router.post("", response_model=UploadResponse)
-async def upload_document(file: UploadFile = File(...)):
+async def upload_document(file: UploadFile = File(...), user: UserRow = Depends(get_current_user)):
     allowed = (".pdf", ".doc", ".docx", ".html", ".htm", ".txt")
     ext = os.path.splitext(file.filename)[1].lower()
     if ext not in allowed:
@@ -25,6 +29,11 @@ async def upload_document(file: UploadFile = File(...)):
     save_path = os.path.join(config.UPLOAD_FOLDER, f"{file_id}{ext}")
 
     content = await file.read()
+    if len(content) > MAX_UPLOAD_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum size is {MAX_UPLOAD_SIZE // (1024*1024)} MB.",
+        )
     with open(save_path, "wb") as f:
         f.write(content)
 

@@ -19,7 +19,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="VolleyPacket", version="2.0.0", lifespan=lifespan)
 
-cors_origins = os.getenv("CORS_ORIGINS", "*").split(",")
+cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,

@@ -91,8 +91,9 @@ def clean_email(raw: str) -> str:
 
 
 class Job:
-    def __init__(self, job_id: str, candidate_file: str, data: pd.DataFrame):
+    def __init__(self, job_id: str, candidate_file: str, data: pd.DataFrame, owner_id: str = ""):
         self.job_id = job_id
+        self.owner_id = owner_id
         self.status = "created"
         self.created_at = datetime.now()
         self.timestamp = self.created_at.strftime("%Y%m%d_%H%M%S")
@@ -168,6 +169,7 @@ class Job:
     def to_dict(self) -> dict:
         return {
             "job_id": self.job_id,
+            "owner_id": getattr(self, "owner_id", ""),
             "status": self.status,
             "created_at": self.created_at.isoformat(),
             "timestamp": self.timestamp,
@@ -212,6 +214,7 @@ class Job:
 
         job = cls.__new__(cls)
         job.job_id = d["job_id"]
+        job.owner_id = d.get("owner_id", "")
         job.status = d["status"]
         job.created_at = datetime.fromisoformat(d["created_at"])
         job.timestamp = d["timestamp"]
@@ -338,9 +341,9 @@ class Job:
 _jobs: dict[str, Job] = {}
 
 
-def create_job(candidate_file: str, data: pd.DataFrame) -> Job:
+def create_job(candidate_file: str, data: pd.DataFrame, owner_id: str = "") -> Job:
     job_id = str(uuid.uuid4())[:8]
-    job = Job(job_id=job_id, candidate_file=candidate_file, data=data)
+    job = Job(job_id=job_id, candidate_file=candidate_file, data=data, owner_id=owner_id)
     _jobs[job_id] = job
     job.save(include_data=True)
     return job
@@ -350,8 +353,24 @@ def get_job(job_id: str) -> Job | None:
     return _jobs.get(job_id)
 
 
+def get_job_for_user(job_id: str, user_id: str) -> Job | None:
+    """Get a job only if it belongs to the user (or has no owner for legacy jobs)."""
+    job = _jobs.get(job_id)
+    if not job:
+        return None
+    owner = getattr(job, "owner_id", "")
+    if owner and owner != user_id:
+        return None
+    return job
+
+
 def list_jobs() -> list[Job]:
     return list(_jobs.values())
+
+
+def list_jobs_for_user(user_id: str) -> list[Job]:
+    """List only jobs owned by the user (or legacy unowned jobs)."""
+    return [j for j in _jobs.values() if not getattr(j, "owner_id", "") or j.owner_id == user_id]
 
 
 def load_all_jobs():

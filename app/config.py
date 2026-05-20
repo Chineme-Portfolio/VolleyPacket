@@ -15,7 +15,10 @@ JOBS_FOLDER = str(BASE_DIR / "data" / "jobs")
 DB_PATH = str(BASE_DIR / "data" / "volleypacket.db")
 
 # Auth
-SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-change-in-production")
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError("SECRET_KEY environment variable is required. Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(48))\"")
+
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = 24

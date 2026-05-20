@@ -10,7 +10,7 @@ from pydantic import BaseModel
 import pandas as pd
 
 from app.models import AttachTemplateRequest, SendSMSRequest, TemplateConfig
-from app.services.jobs import create_job, get_job, list_jobs
+from app.services.jobs import create_job, get_job, get_job_for_user, list_jobs, list_jobs_for_user
 from app.services.read_data import load_data
 from app.services.pdf_tasks import start_pdf_generation
 from app.services.email_tasks import start_email_send
@@ -26,6 +26,26 @@ from app import config
 router = APIRouter()
 
 VALID_TASKS = ("pdfs", "emails", "sms", "photos")
+MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
+
+
+async def _read_upload(file: UploadFile, max_size: int = MAX_UPLOAD_SIZE) -> bytes:
+    """Read an uploaded file with size limit enforcement."""
+    content = await file.read()
+    if len(content) > max_size:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum size is {max_size // (1024*1024)} MB.",
+        )
+    return content
+
+
+def _get_job_or_404(job_id: str, user: UserRow) -> "Job":
+    """Fetch a job, ensuring it belongs to the user."""
+    job = get_job_for_user(job_id, user.id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
 
 
 def _get_user_provider(user: UserRow):
@@ -50,8 +70,8 @@ def _get_user_provider(user: UserRow):
 # --- LIST JOBS ---
 
 @router.get("")
-def get_all_jobs():
-    return [job.to_response().model_dump() for job in list_jobs()]
+def get_all_jobs(user: UserRow = Depends(get_current_user)):
+    return [job.to_response().model_dump() for job in list_jobs_for_user(user.id)]
 
 
 # --- CREATE JOB ---
@@ -60,6 +80,7 @@ def get_all_jobs():
 async def create_new_job(
     candidate_file: UploadFile = File(...),
     is_allocated: bool = Form(False),
+    user: UserRow = Depends(get_current_user),
 ):
     ext = os.path.splitext(candidate_file.filename)[1].lower()
     if ext not in (".xlsx", ".xls", ".csv"):
@@ -69,7 +90,7 @@ async def create_new_job(
 
     file_id = str(uuid.uuid4())[:8]
     save_path = os.path.join(config.UPLOAD_FOLDER, f"candidates_{file_id}{ext}")
-    content = await candidate_file.read()
+    content = await _read_upload(candidate_file)
     with open(save_path, "wb") as f:
         f.write(content)
 
@@ -82,7 +103,7 @@ async def create_new_job(
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Failed to read file: {e}")
 
-    job = create_job(candidate_file=candidate_file.filename, data=data)
+    job = create_job(candidate_file=candidate_file.filename, data=data, owner_id=user.id)
     job.is_allocated = is_allocated
     job.save()
 
@@ -92,21 +113,16 @@ async def create_new_job(
 # --- GET JOB ---
 
 @router.get("/{job_id}")
-def get_job_status(job_id: str):
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+def get_job_status(job_id: str, user: UserRow = Depends(get_current_user)):
+    job = _get_job_or_404(job_id, user)
     return job.to_response().model_dump()
 
 
 # --- CANCEL JOB ---
 
 @router.post("/{job_id}/cancel")
-def cancel_job(job_id: str):
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-
+def cancel_job(job_id: str, user: UserRow = Depends(get_current_user)):
+    job = _get_job_or_404(job_id, user)
     job.cancel()
     return {"message": "Job cancelled", "job_id": job_id}
 
@@ -114,10 +130,8 @@ def cancel_job(job_id: str):
 # --- PAUSE / RESUME TASK ---
 
 @router.post("/{job_id}/{task_name}/pause")
-def pause_task(job_id: str, task_name: str):
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+def pause_task(job_id: str, task_name: str, user: UserRow = Depends(get_current_user)):
+    job = _get_job_or_404(job_id, user)
     if task_name not in VALID_TASKS:
         raise HTTPException(status_code=400, detail=f"Invalid task. Must be one of: {VALID_TASKS}")
 
@@ -130,10 +144,8 @@ def pause_task(job_id: str, task_name: str):
 
 
 @router.post("/{job_id}/{task_name}/resume")
-def resume_task(job_id: str, task_name: str):
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+def resume_task(job_id: str, task_name: str, user: UserRow = Depends(get_current_user)):
+    job = _get_job_or_404(job_id, user)
     if task_name not in VALID_TASKS:
         raise HTTPException(status_code=400, detail=f"Invalid task. Must be one of: {VALID_TASKS}")
 
@@ -152,10 +164,9 @@ async def reupload_data(
     job_id: str,
     candidate_file: UploadFile = File(...),
     is_allocated: bool = Form(False),
+    user: UserRow = Depends(get_current_user),
 ):
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    job = _get_job_or_404(job_id, user)
 
     # Block re-upload if any task is currently running
     running_tasks = [name for name, t in job.tasks.items() if t.status == "running"]
@@ -172,7 +183,7 @@ async def reupload_data(
     os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
     file_id = str(uuid.uuid4())[:8]
     save_path = os.path.join(config.UPLOAD_FOLDER, f"candidates_{file_id}{ext}")
-    content = await candidate_file.read()
+    content = await _read_upload(candidate_file)
     with open(save_path, "wb") as f:
         f.write(content)
 
@@ -201,18 +212,18 @@ async def reupload_data(
 # --- ATTACH TEMPLATE ---
 
 @router.post("/{job_id}/template")
-def attach_template(job_id: str, request: AttachTemplateRequest):
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+def attach_template(job_id: str, request: AttachTemplateRequest, user: UserRow = Depends(get_current_user)):
+    job = _get_job_or_404(job_id, user)
 
     if request.template_id:
-        template_path = os.path.join(config.TEMPLATE_FOLDER, f"{request.template_id}.json")
+        # Sanitize template_id to prevent path traversal
+        safe_id = os.path.basename(request.template_id)
+        template_path = os.path.join(config.TEMPLATE_FOLDER, f"{safe_id}.json")
         if not os.path.isfile(template_path):
-            raise HTTPException(status_code=404, detail=f"Template '{request.template_id}' not found")
+            raise HTTPException(status_code=404, detail=f"Template '{safe_id}' not found")
         with open(template_path, "r") as f:
             job.template = TemplateConfig(**json.load(f))
-        job.template_id = request.template_id
+        job.template_id = safe_id
 
     elif request.template:
         job.template = request.template
@@ -232,6 +243,7 @@ async def set_job_mode(
     job_id: str,
     mode: str = Form(...),
     static_attachment: UploadFile = File(None),
+    user: UserRow = Depends(get_current_user),
 ):
     """
     Set the job mode:
@@ -239,9 +251,7 @@ async def set_job_mode(
       - static_attachment: same file attached to every email
       - dynamic_pdf: generate a unique PDF per recipient (default)
     """
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    job = _get_job_or_404(job_id, user)
 
     valid_modes = ("email_only", "static_attachment", "dynamic_pdf")
     if mode not in valid_modes:
@@ -254,7 +264,7 @@ async def set_job_mode(
         file_id = str(uuid.uuid4())[:8]
         ext = os.path.splitext(static_attachment.filename)[1].lower()
         save_path = os.path.join(config.UPLOAD_FOLDER, f"attachment_{file_id}{ext}")
-        content = await static_attachment.read()
+        content = await _read_upload(static_attachment)
         with open(save_path, "wb") as f:
             f.write(content)
         job.static_attachment_path = save_path
@@ -271,10 +281,8 @@ class EmailContentRequest(BaseModel):
 
 
 @router.post("/{job_id}/email-content")
-def set_email_content(job_id: str, req: EmailContentRequest):
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+def set_email_content(job_id: str, req: EmailContentRequest, user: UserRow = Depends(get_current_user)):
+    job = _get_job_or_404(job_id, user)
 
     job.email_subject = req.subject
     job.email_body = req.body
@@ -285,10 +293,8 @@ def set_email_content(job_id: str, req: EmailContentRequest):
 # --- ALLOCATE ---
 
 @router.post("/{job_id}/allocate")
-def allocate_job(job_id: str):
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+def allocate_job(job_id: str, user: UserRow = Depends(get_current_user)):
+    job = _get_job_or_404(job_id, user)
 
     if job.is_allocated:
         raise HTTPException(status_code=409, detail="Data is already allocated")
@@ -312,10 +318,8 @@ def allocate_job(job_id: str):
 # --- GENERATE PDFs ---
 
 @router.post("/{job_id}/pdfs/generate")
-def generate_pdfs(job_id: str):
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+def generate_pdfs(job_id: str, user: UserRow = Depends(get_current_user)):
+    job = _get_job_or_404(job_id, user)
     if not job.template:
         raise HTTPException(status_code=400, detail="No template attached — attach one first")
     if not job.is_allocated:
@@ -331,18 +335,14 @@ def generate_pdfs(job_id: str):
 
 
 @router.get("/{job_id}/pdfs/status")
-def get_pdf_status(job_id: str):
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+def get_pdf_status(job_id: str, user: UserRow = Depends(get_current_user)):
+    job = _get_job_or_404(job_id, user)
     return job.tasks["pdfs"].model_dump()
 
 
 @router.get("/{job_id}/pdfs/download")
-def download_pdfs(job_id: str):
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+def download_pdfs(job_id: str, user: UserRow = Depends(get_current_user)):
+    job = _get_job_or_404(job_id, user)
 
     task = job.tasks["pdfs"]
     if task.status != "complete":
@@ -359,9 +359,7 @@ def download_pdfs(job_id: str):
 
 @router.post("/{job_id}/emails/send")
 def send_emails(job_id: str, user: UserRow = Depends(get_current_user)):
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    job = _get_job_or_404(job_id, user)
 
     job_mode = getattr(job, "job_mode", "dynamic_pdf")
 
@@ -388,20 +386,16 @@ def send_emails(job_id: str, user: UserRow = Depends(get_current_user)):
 
 
 @router.get("/{job_id}/emails/status")
-def get_email_status(job_id: str):
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+def get_email_status(job_id: str, user: UserRow = Depends(get_current_user)):
+    job = _get_job_or_404(job_id, user)
     return job.tasks["emails"].model_dump()
 
 
 # --- SEND SMS ---
 
 @router.post("/{job_id}/sms/send")
-def send_sms(job_id: str, request: SendSMSRequest = SendSMSRequest()):
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+def send_sms(job_id: str, request: SendSMSRequest = SendSMSRequest(), user: UserRow = Depends(get_current_user)):
+    job = _get_job_or_404(job_id, user)
     if not job.is_allocated:
         raise HTTPException(status_code=400, detail="Data not allocated")
 
@@ -413,20 +407,16 @@ def send_sms(job_id: str, request: SendSMSRequest = SendSMSRequest()):
 
 
 @router.get("/{job_id}/sms/status")
-def get_sms_status(job_id: str):
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+def get_sms_status(job_id: str, user: UserRow = Depends(get_current_user)):
+    job = _get_job_or_404(job_id, user)
     return job.tasks["sms"].model_dump()
 
 
 # --- DOWNLOAD PHOTOS ---
 
 @router.post("/{job_id}/photos/download")
-def download_photos(job_id: str):
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+def download_photos(job_id: str, user: UserRow = Depends(get_current_user)):
+    job = _get_job_or_404(job_id, user)
 
     if job.tasks["photos"].status == "running":
         raise HTTPException(status_code=409, detail="Photo download already running")
@@ -436,20 +426,16 @@ def download_photos(job_id: str):
 
 
 @router.get("/{job_id}/photos/status")
-def get_photo_status(job_id: str):
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+def get_photo_status(job_id: str, user: UserRow = Depends(get_current_user)):
+    job = _get_job_or_404(job_id, user)
     return job.tasks["photos"].model_dump()
 
 
 # --- REPORT ---
 
 @router.get("/{job_id}/report")
-def get_report(job_id: str):
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+def get_report(job_id: str, user: UserRow = Depends(get_current_user)):
+    job = _get_job_or_404(job_id, user)
 
     email_task = job.tasks["emails"]
     if email_task.status != "complete":
@@ -505,10 +491,8 @@ def _read_log_file(path: str, limit: int, offset: int) -> dict:
 
 
 @router.get("/{job_id}/logs")
-def list_job_logs(job_id: str):
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+def list_job_logs(job_id: str, user: UserRow = Depends(get_current_user)):
+    job = _get_job_or_404(job_id, user)
 
     available = []
     for key, meta in LOG_TYPES.items():
@@ -533,10 +517,9 @@ def get_job_log(
     log_key: str,
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    user: UserRow = Depends(get_current_user),
 ):
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    job = _get_job_or_404(job_id, user)
 
     if log_key not in LOG_TYPES:
         raise HTTPException(status_code=400, detail=f"Unknown log type: {log_key}")

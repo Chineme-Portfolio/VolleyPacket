@@ -63,7 +63,9 @@ def verify_google_token(id_token: str) -> dict:
     payload = resp.json()
 
     # Verify the token was issued for our app
-    if config.GOOGLE_CLIENT_ID and payload.get("aud") != config.GOOGLE_CLIENT_ID:
+    if not config.GOOGLE_CLIENT_ID:
+        raise ValueError("Google OAuth is not configured (GOOGLE_CLIENT_ID is missing)")
+    if payload.get("aud") != config.GOOGLE_CLIENT_ID:
         raise ValueError("Google token audience mismatch")
 
     if payload.get("email_verified") != "true":
