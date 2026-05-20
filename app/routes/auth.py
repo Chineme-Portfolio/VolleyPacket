@@ -40,6 +40,7 @@ class UserResponse(BaseModel):
     id: str
     email: str
     auth_provider: str
+    tier: str = "free"
 
 
 # ── Routes ────────────────────────────────────────────────────────────
@@ -65,7 +66,7 @@ def signup(req: SignupRequest):
 
     return AuthResponse(
         token=token,
-        user={"id": user.id, "email": user.email, "auth_provider": user.auth_provider},
+        user={"id": user.id, "email": user.email, "auth_provider": user.auth_provider, "tier": getattr(user, "tier", "free") or "free"},
     )
 
 
@@ -94,7 +95,7 @@ def login(req: LoginRequest):
 
     return AuthResponse(
         token=token,
-        user={"id": user.id, "email": user.email, "auth_provider": user.auth_provider},
+        user={"id": user.id, "email": user.email, "auth_provider": user.auth_provider, "tier": getattr(user, "tier", "free") or "free"},
     )
 
 
@@ -119,7 +120,7 @@ def google_login(req: GoogleLoginRequest):
 
     return AuthResponse(
         token=token,
-        user={"id": user.id, "email": user.email, "auth_provider": user.auth_provider},
+        user={"id": user.id, "email": user.email, "auth_provider": user.auth_provider, "tier": getattr(user, "tier", "free") or "free"},
     )
 
 
@@ -129,4 +130,5 @@ def get_me(user: UserRow = Depends(get_current_user)):
         id=user.id,
         email=user.email,
         auth_provider=user.auth_provider,
+        tier=getattr(user, "tier", "free") or "free",
     )

@@ -28,3 +28,4 @@ bcrypt
 PyJWT
 cryptography
 email-validator
+stripe

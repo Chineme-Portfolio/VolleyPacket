@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routes import templates, upload, generate, jobs
-from app.routes import auth, email_settings
+from app.routes import auth, email_settings, billing
 from app.services.jobs import load_all_jobs
 from app.database import init_db
 
@@ -42,3 +42,4 @@ app.include_router(upload.router, prefix="/upload", tags=["Upload & Parse"])
 app.include_router(generate.router, prefix="/generate", tags=["AI Generate"])
 app.include_router(jobs.router, prefix="/jobs", tags=["Jobs"])
 app.include_router(email_settings.router, prefix="/email-settings", tags=["Email Settings"])
+app.include_router(billing.router, prefix="/billing", tags=["Billing"])

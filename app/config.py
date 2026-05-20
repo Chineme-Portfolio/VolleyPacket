@@ -26,3 +26,10 @@ ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
 
 # APIs
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+
+# Stripe
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+STRIPE_PRICE_CLASSIC = os.getenv("STRIPE_PRICE_CLASSIC", "")  # Stripe Price ID for Classic tier
+STRIPE_PRICE_PRO = os.getenv("STRIPE_PRICE_PRO", "")          # Stripe Price ID for Pro tier
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
