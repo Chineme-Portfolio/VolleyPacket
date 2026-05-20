@@ -66,10 +66,6 @@ export interface Job {
   tasks: Record<string, TaskStatus>;
 }
 
-export async function getTemplates(): Promise<Template[]> {
-  return fetchJSON("/templates");
-}
-
 export async function getJobs(): Promise<Job[]> {
   return fetchJSON("/jobs");
 }
