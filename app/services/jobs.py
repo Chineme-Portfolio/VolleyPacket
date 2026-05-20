@@ -149,7 +149,7 @@ class Job:
             columns=self.columns,
             template_id=self.template_id,
             is_allocated=self.is_allocated,
-            job_mode=self.job_mode,
+            job_mode=getattr(self, "job_mode", "dynamic_pdf"),
             tasks=self.tasks,
         )
 
