@@ -117,6 +117,20 @@ def list_tiers(region: str = Query(None)):
     return result
 
 
+def _detect_country_from_ip(ip: str) -> str | None:
+    """Look up country code from IP using free ip-api.com (no key needed, 45 req/min)."""
+    import requests as req
+    try:
+        resp = req.get(f"http://ip-api.com/json/{ip}?fields=countryCode", timeout=3)
+        if resp.status_code == 200:
+            code = resp.json().get("countryCode", "").upper()
+            if code and len(code) == 2:
+                return code
+    except Exception:
+        pass
+    return None
+
+
 @router.get("/region")
 def get_region(user: UserRow = Depends(get_current_user), request: Request = None):
     """
@@ -127,21 +141,66 @@ def get_region(user: UserRow = Depends(get_current_user), request: Request = Non
     if region:
         return {"region": region, "locked": True}
 
-    # Auto-detect: check X-Forwarded-For / CF-IPCountry headers, fallback to US
     detected = "US"
     if request:
-        # Cloudflare / Vercel set this header
+        # 1. Cloudflare / Vercel header (if behind CF proxy)
         cf_country = request.headers.get("cf-ipcountry", "").upper()
         if cf_country and cf_country != "XX":
             detected = cf_country
         else:
-            # Fallback: check if the client hints at Nigeria via Accept-Language
-            accept_lang = request.headers.get("accept-language", "")
-            if "ng" in accept_lang.lower() or "ha" in accept_lang.lower() or "ig" in accept_lang.lower() or "yo" in accept_lang.lower():
-                detected = "NG"
+            # 2. GeoIP lookup from the real client IP
+            client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+            if not client_ip:
+                client_ip = request.client.host if request.client else ""
+            if client_ip:
+                geo_country = _detect_country_from_ip(client_ip)
+                if geo_country:
+                    detected = geo_country
+                    logger.info("Region auto-detected from IP %s → %s", client_ip, detected)
+
+            # 3. Fallback: Accept-Language hints for Nigerian languages
+            if detected == "US":
+                accept_lang = request.headers.get("accept-language", "").lower()
+                if any(hint in accept_lang for hint in ["ng", "ha", "ig", "yo", "pcm"]):
+                    detected = "NG"
 
     set_user_region(user.id, detected)
+    logger.info("Region locked for user %s → %s", user.id, detected)
     return {"region": detected, "locked": True}
+
+
+@router.post("/region/reset")
+def reset_region(user: UserRow = Depends(get_current_user), request: Request = None):
+    """
+    Re-detect region from the current IP. Useful when a user's region
+    was incorrectly detected (e.g. before GeoIP was implemented).
+    Only works if the user has no active paid subscription.
+    """
+    # Don't allow reset if they have an active paid subscription
+    session = get_session()
+    try:
+        sub = session.query(SubscriptionRow).filter_by(user_id=user.id).first()
+        if sub and sub.tier not in ("free", None) and sub.status == "active":
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot reset region with an active subscription. Contact support.",
+            )
+    finally:
+        session.close()
+
+    # Clear existing region so get_region re-detects
+    set_user_region(user.id, "")
+    session = get_session()
+    try:
+        u = session.get(UserRow, user.id)
+        if u:
+            u.region = None
+            session.commit()
+    finally:
+        session.close()
+
+    # Re-detect
+    return get_region(user=user, request=request)
 
 
 @router.get("/subscription", response_model=SubscriptionResponse)

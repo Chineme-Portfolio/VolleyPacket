@@ -8,6 +8,7 @@ import {
   getTiers,
   getSubscription,
   getUserRegion,
+  resetUserRegion,
   createCheckout,
   createPortalSession,
   TierInfo,
@@ -53,6 +54,7 @@ export default function BillingPage() {
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [resettingRegion, setResettingRegion] = useState(false);
 
   const success = searchParams.get("success");
   const cancelled = searchParams.get("cancelled");
@@ -124,7 +126,29 @@ export default function BillingPage() {
             Choose the plan that fits your workflow.
             {region && (
               <span className="ml-2 text-xs text-gray-400">
-                Prices shown in {isNigeria ? "NGN" : "USD"}
+                Prices shown in {isNigeria ? "NGN" : "USD"} &middot;{" "}
+                <button
+                  type="button"
+                  disabled={resettingRegion}
+                  onClick={async () => {
+                    setResettingRegion(true);
+                    try {
+                      const result = await resetUserRegion();
+                      const newRegion = result.region || "US";
+                      setRegion(newRegion);
+                      const t = await getTiers(newRegion);
+                      setTiers(t);
+                      toast(newRegion === "NG" ? "Region updated to Nigeria (NGN)" : `Region updated to ${newRegion} (USD)`, "success");
+                    } catch (err) {
+                      toast(friendlyError(err));
+                    } finally {
+                      setResettingRegion(false);
+                    }
+                  }}
+                  className="text-green-700 hover:text-green-800 underline underline-offset-2"
+                >
+                  {resettingRegion ? "Detecting..." : "Wrong region?"}
+                </button>
               </span>
             )}
           </p>

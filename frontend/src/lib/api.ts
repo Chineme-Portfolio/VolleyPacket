@@ -303,6 +303,10 @@ export async function getUserRegion(): Promise<{ region: string | null; locked: 
   return fetchJSON("/billing/region");
 }
 
+export async function resetUserRegion(): Promise<{ region: string | null; locked: boolean }> {
+  return fetchJSON("/billing/region/reset", { method: "POST" });
+}
+
 export async function createCheckout(tier: string): Promise<{ checkout_url: string }> {
   return fetchJSON("/billing/checkout", {
     method: "POST",
