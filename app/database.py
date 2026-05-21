@@ -62,6 +62,15 @@ class SubscriptionRow(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class AIUsageRow(Base):
+    __tablename__ = "ai_usage"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    year_month = Column(String, nullable=False, index=True)  # e.g. "2026-05"
+    count = Column(Integer, nullable=False, default=0)
+
+
 class TemplateRow(Base):
     __tablename__ = "templates"
 

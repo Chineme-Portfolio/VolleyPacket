@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from app import config
 from app.database import UserRow
 from app.dependencies import get_current_user
+from app.services.billing import check_ai_limit, increment_ai_usage
 
 router = APIRouter()
 
@@ -29,6 +30,14 @@ def generate_email_content(req: GenerateEmailRequest, user: UserRow = Depends(ge
     """Generate email subject and HTML body using AI."""
     if not config.ANTHROPIC_API_KEY:
         raise HTTPException(status_code=503, detail="AI features require an Anthropic API key")
+
+    # Check AI usage limit
+    allowed, current, limit = check_ai_limit(user.id)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"You've used all {limit} AI messages this month. Upgrade your plan for more.",
+        )
 
     try:
         import anthropic
@@ -92,6 +101,7 @@ RULES:
 </body>
 </html>"""
 
+        increment_ai_usage(user.id)
         return GenerateEmailResponse(subject=subject, body=body)
 
     except json.JSONDecodeError:

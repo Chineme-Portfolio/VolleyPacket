@@ -5,7 +5,7 @@ Subscription tier logic with dual-currency pricing (USD/NGN).
 import uuid
 from datetime import datetime
 
-from app.database import get_session, UserRow, SubscriptionRow
+from app.database import get_session, UserRow, SubscriptionRow, AIUsageRow
 
 
 # ── Tier Definitions ─────────────────────────────────────────────────
@@ -153,6 +153,70 @@ def update_user_tier(user_id: str, new_tier: str):
         if user:
             user.tier = new_tier
             session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+# ── AI Usage Tracking ───────────────────────────────────────────────
+
+
+def _current_month() -> str:
+    """Return current year-month string like '2026-05'."""
+    return datetime.utcnow().strftime("%Y-%m")
+
+
+def get_ai_usage(user_id: str) -> int:
+    """Get the AI message count for the current month."""
+    session = get_session()
+    try:
+        month = _current_month()
+        row = session.query(AIUsageRow).filter_by(
+            user_id=user_id, year_month=month
+        ).first()
+        return row.count if row else 0
+    finally:
+        session.close()
+
+
+def check_ai_limit(user_id: str) -> tuple[bool, int, int | None]:
+    """
+    Check if the user can make another AI call.
+    Returns (allowed, current_count, limit).
+    limit=None means unlimited.
+    """
+    tier = get_user_tier(user_id)
+    limits = get_tier_limits(tier)
+    max_messages = limits["ai_chat_messages"]
+    current = get_ai_usage(user_id)
+
+    if max_messages is None:
+        return True, current, None
+
+    return current < max_messages, current, max_messages
+
+
+def increment_ai_usage(user_id: str):
+    """Increment the AI message counter for the current month."""
+    session = get_session()
+    try:
+        month = _current_month()
+        row = session.query(AIUsageRow).filter_by(
+            user_id=user_id, year_month=month
+        ).first()
+        if row:
+            row.count += 1
+        else:
+            row = AIUsageRow(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                year_month=month,
+                count=1,
+            )
+            session.add(row)
+        session.commit()
     except Exception:
         session.rollback()
         raise
