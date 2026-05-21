@@ -28,6 +28,7 @@ class UserRow(Base):
     password_hash = Column(String, nullable=True)  # null for Google OAuth users
     auth_provider = Column(String, nullable=False, default="local")  # "local" or "google"
     tier = Column(String, nullable=False, default="free")  # "free", "classic", "pro"
+    region = Column(String, nullable=True)  # ISO country code: "NG", "US", etc.
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
@@ -47,8 +48,11 @@ class SubscriptionRow(Base):
 
     id = Column(String, primary_key=True)  # UUID
     user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    stripe_customer_id = Column(String, nullable=False, index=True)
+    payment_provider = Column(String, nullable=False, default="stripe")  # "stripe" or "paystack"
+    stripe_customer_id = Column(String, nullable=True, index=True)
     stripe_subscription_id = Column(String, nullable=True, unique=True)
+    paystack_customer_code = Column(String, nullable=True)
+    paystack_subscription_code = Column(String, nullable=True)
     tier = Column(String, nullable=False, default="free")  # "free", "classic", "pro"
     status = Column(String, nullable=False, default="active")  # "active", "cancelled", "past_due", "trialing"
     current_period_start = Column(DateTime, nullable=True)

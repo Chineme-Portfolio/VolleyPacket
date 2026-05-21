@@ -1,5 +1,5 @@
 """
-Subscription tier logic and Stripe integration helpers.
+Subscription tier logic with dual-currency pricing (USD/NGN).
 """
 
 import uuid
@@ -13,10 +13,13 @@ from app.database import get_session, UserRow, SubscriptionRow
 TIERS = {
     "free": {
         "name": "Free",
-        "price_monthly": 0,
+        "pricing": {
+            "USD": {"price_monthly": 0, "currency_symbol": "$"},
+            "NGN": {"price_monthly": 0, "currency_symbol": "₦"},
+        },
         "max_active_jobs": 3,
-        "ai_chat_messages": 10,       # per month
-        "template_access": "free",     # only free-tier templates
+        "ai_chat_messages": 10,
+        "template_access": "free",
         "can_publish_templates": False,
         "email_support": False,
         "features": [
@@ -28,9 +31,12 @@ TIERS = {
     },
     "classic": {
         "name": "Classic",
-        "price_monthly": 12,
-        "max_active_jobs": None,       # unlimited
-        "ai_chat_messages": 100,       # per month
+        "pricing": {
+            "USD": {"price_monthly": 12, "currency_symbol": "$"},
+            "NGN": {"price_monthly": 8500, "currency_symbol": "₦"},
+        },
+        "max_active_jobs": None,
+        "ai_chat_messages": 100,
         "template_access": "all",
         "can_publish_templates": True,
         "email_support": True,
@@ -44,9 +50,12 @@ TIERS = {
     },
     "pro": {
         "name": "Pro",
-        "price_monthly": 29,
-        "max_active_jobs": None,       # unlimited
-        "ai_chat_messages": None,      # unlimited
+        "pricing": {
+            "USD": {"price_monthly": 29, "currency_symbol": "$"},
+            "NGN": {"price_monthly": 23500, "currency_symbol": "₦"},
+        },
+        "max_active_jobs": None,
+        "ai_chat_messages": None,
         "template_access": "all",
         "can_publish_templates": True,
         "email_support": True,
@@ -60,6 +69,47 @@ TIERS = {
         ],
     },
 }
+
+
+# ── Region / Currency Helpers ────────────────────────────────────────
+
+
+def get_currency_for_region(region: str | None) -> str:
+    """Map region to currency. Nigeria -> NGN, everything else -> USD."""
+    return "NGN" if region and region.upper() == "NG" else "USD"
+
+
+def get_provider_for_region(region: str | None) -> str:
+    """Map region to payment provider. Nigeria -> paystack, else -> stripe."""
+    return "paystack" if region and region.upper() == "NG" else "stripe"
+
+
+def get_user_region(user_id: str) -> str | None:
+    """Get the user's stored region."""
+    session = get_session()
+    try:
+        user = session.get(UserRow, user_id)
+        return getattr(user, "region", None) if user else None
+    finally:
+        session.close()
+
+
+def set_user_region(user_id: str, region: str):
+    """Store the user's region."""
+    session = get_session()
+    try:
+        user = session.get(UserRow, user_id)
+        if user:
+            user.region = region.upper()
+            session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+# ── Tier Logic ───────────────────────────────────────────────────────
 
 
 def get_user_tier(user_id: str) -> str:
@@ -103,32 +153,6 @@ def update_user_tier(user_id: str, new_tier: str):
         if user:
             user.tier = new_tier
             session.commit()
-    except Exception:
-        session.rollback()
-        raise
-    finally:
-        session.close()
-
-
-def get_or_create_subscription(user_id: str, stripe_customer_id: str) -> SubscriptionRow:
-    """Get existing subscription or create a free one."""
-    session = get_session()
-    try:
-        sub = session.query(SubscriptionRow).filter_by(user_id=user_id).first()
-        if sub:
-            return sub
-
-        sub = SubscriptionRow(
-            id=str(uuid.uuid4()),
-            user_id=user_id,
-            stripe_customer_id=stripe_customer_id,
-            tier="free",
-            status="active",
-        )
-        session.add(sub)
-        session.commit()
-        session.refresh(sub)
-        return sub
     except Exception:
         session.rollback()
         raise

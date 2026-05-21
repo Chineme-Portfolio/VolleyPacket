@@ -36,3 +36,9 @@ STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 STRIPE_PRICE_CLASSIC = os.getenv("STRIPE_PRICE_CLASSIC", "")  # Stripe Price ID for Classic tier
 STRIPE_PRICE_PRO = os.getenv("STRIPE_PRICE_PRO", "")          # Stripe Price ID for Pro tier
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+# Paystack (for Nigerian users)
+PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY")
+PAYSTACK_WEBHOOK_SECRET = os.getenv("PAYSTACK_WEBHOOK_SECRET")
+PAYSTACK_PLAN_CLASSIC = os.getenv("PAYSTACK_PLAN_CLASSIC", "")  # Paystack plan_code for Classic
+PAYSTACK_PLAN_PRO = os.getenv("PAYSTACK_PLAN_PRO", "")          # Paystack plan_code for Pro

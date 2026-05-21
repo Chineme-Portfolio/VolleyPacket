@@ -262,6 +262,8 @@ export async function updateTemplateVisibility(
 export interface TierInfo {
   name: string;
   price_monthly: number;
+  currency: string;
+  currency_symbol: string;
   features: string[];
   max_active_jobs: number | null;
   ai_chat_messages: number | null;
@@ -273,15 +275,29 @@ export interface Subscription {
   status: string;
   cancel_at_period_end: boolean;
   current_period_end: string | null;
+  payment_provider: string;
   stripe_customer_id: string | null;
 }
 
-export async function getTiers(): Promise<Record<string, TierInfo>> {
-  return fetchJSON("/billing/tiers");
+export async function getTiers(region?: string): Promise<Record<string, TierInfo>> {
+  const params = region ? `?region=${region}` : "";
+  return fetchJSON(`/billing/tiers${params}`);
 }
 
 export async function getSubscription(): Promise<Subscription> {
   return fetchJSON("/billing/subscription");
+}
+
+export async function getUserRegion(): Promise<{ region: string | null }> {
+  return fetchJSON("/billing/region");
+}
+
+export async function setUserRegion(region: string): Promise<{ region: string }> {
+  return fetchJSON("/billing/region", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ region }),
+  });
 }
 
 export async function createCheckout(tier: string): Promise<{ checkout_url: string }> {

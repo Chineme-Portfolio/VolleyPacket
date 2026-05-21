@@ -7,6 +7,8 @@ import { useAuth } from "@/lib/auth";
 import {
   getTiers,
   getSubscription,
+  getUserRegion,
+  setUserRegion,
   createCheckout,
   createPortalSession,
   TierInfo,
@@ -44,6 +46,7 @@ export default function BillingPage() {
   const searchParams = useSearchParams();
   const [tiers, setTiers] = useState<Record<string, TierInfo> | null>(null);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
+  const [region, setRegion] = useState<string>("US");
   const [loading, setLoading] = useState(true);
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
@@ -61,14 +64,29 @@ export default function BillingPage() {
   }, [success, cancelled]);
 
   useEffect(() => {
-    Promise.all([getTiers(), getSubscription()])
-      .then(([t, s]) => {
-        setTiers(t);
-        setSubscription(s);
+    Promise.all([getUserRegion(), getSubscription()])
+      .then(([regionData, sub]) => {
+        const userRegion = regionData.region || "US";
+        setRegion(userRegion);
+        setSubscription(sub);
+        return getTiers(userRegion);
       })
+      .then((t) => setTiers(t))
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  async function handleRegionChange(newRegion: string) {
+    setRegion(newRegion);
+    try {
+      await setUserRegion(newRegion);
+      const t = await getTiers(newRegion);
+      setTiers(t);
+    } catch {
+      // revert on error
+      setRegion(region);
+    }
+  }
 
   async function handleUpgrade(tier: string) {
     setCheckoutLoading(tier);
@@ -95,6 +113,7 @@ export default function BillingPage() {
   }
 
   const currentTier = subscription?.tier || user?.tier || "free";
+  const isNigeria = region === "NG";
 
   if (loading) {
     return (
@@ -120,6 +139,33 @@ export default function BillingPage() {
         </Link>
       </div>
 
+      {/* Region Selector */}
+      <div className="mb-6 flex items-center gap-3">
+        <span className="text-sm font-medium text-gray-700">Your region:</span>
+        <div className="inline-flex rounded-xl border border-gray-200 overflow-hidden">
+          <button
+            onClick={() => handleRegionChange("US")}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${
+              !isNigeria
+                ? "bg-green-800 text-white"
+                : "bg-white text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            International (USD)
+          </button>
+          <button
+            onClick={() => handleRegionChange("NG")}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${
+              isNigeria
+                ? "bg-green-800 text-white"
+                : "bg-white text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            Nigeria (NGN)
+          </button>
+        </div>
+      </div>
+
       {/* Message */}
       {message && (
         <div
@@ -139,6 +185,11 @@ export default function BillingPage() {
         <div className="flex-1">
           <p className="text-sm font-medium text-green-900">
             Current plan: <span className="font-bold capitalize">{currentTier}</span>
+            {subscription?.payment_provider && currentTier !== "free" && (
+              <span className="ml-2 text-xs text-green-600">
+                via {subscription.payment_provider === "paystack" ? "Paystack" : "Stripe"}
+              </span>
+            )}
           </p>
           {subscription?.cancel_at_period_end && subscription.current_period_end && (
             <p className="text-xs text-green-700">
@@ -200,7 +251,7 @@ export default function BillingPage() {
 
                 <div className="mb-6">
                   <span className="text-4xl font-bold text-gray-900">
-                    ${tier.price_monthly}
+                    {tier.currency_symbol}{tier.price_monthly.toLocaleString()}
                   </span>
                   <span className="text-gray-500 text-sm">/month</span>
                 </div>
@@ -270,6 +321,13 @@ export default function BillingPage() {
             </p>
           </div>
           <div>
+            <h3 className="text-sm font-semibold text-gray-800">Why are there two payment options?</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Nigerian users pay in Naira via Paystack for the best local experience. International users pay in USD via Stripe.
+              Select your region above to see pricing in your currency.
+            </p>
+          </div>
+          <div>
             <h3 className="text-sm font-semibold text-gray-800">How do published templates work?</h3>
             <p className="text-sm text-gray-500 mt-1">
               Classic and Pro users can share their templates publicly. Published templates appear in the community library for all users.
@@ -279,7 +337,7 @@ export default function BillingPage() {
           <div>
             <h3 className="text-sm font-semibold text-gray-800">Is my payment secure?</h3>
             <p className="text-sm text-gray-500 mt-1">
-              All payments are processed securely through Stripe. We never store your card details.
+              All payments are processed securely through {isNigeria ? "Paystack" : "Stripe"}. We never store your card details.
             </p>
           </div>
         </div>

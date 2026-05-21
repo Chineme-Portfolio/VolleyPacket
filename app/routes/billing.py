@@ -1,20 +1,29 @@
 """
-Stripe billing routes: checkout, portal, webhooks, subscription status.
+Dual billing routes: Stripe (international) + Paystack (Nigeria).
+Provider is chosen based on user's region.
 """
 
 import uuid
+import logging
 from datetime import datetime
 
 import stripe
-from fastapi import APIRouter, HTTPException, Depends, Request, status
+from fastapi import APIRouter, HTTPException, Depends, Request, Query, status
 from pydantic import BaseModel
+from typing import Optional
 
 from app import config
 from app.database import get_session, UserRow, SubscriptionRow
 from app.dependencies import get_current_user
-from app.services.billing import TIERS, get_user_tier, get_tier_limits, update_user_tier
+from app.services.billing import (
+    TIERS, get_user_tier, get_tier_limits, update_user_tier,
+    get_currency_for_region, get_provider_for_region,
+    get_user_region, set_user_region,
+)
+from app.services import paystack as ps
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 stripe.api_key = config.STRIPE_SECRET_KEY
 
@@ -24,6 +33,11 @@ stripe.api_key = config.STRIPE_SECRET_KEY
 
 class CheckoutRequest(BaseModel):
     tier: str  # "classic" or "pro"
+    region: Optional[str] = None  # "NG", "US", etc. — overrides saved region
+
+
+class SetRegionRequest(BaseModel):
+    region: str  # ISO country code
 
 
 class SubscriptionResponse(BaseModel):
@@ -31,10 +45,11 @@ class SubscriptionResponse(BaseModel):
     status: str
     cancel_at_period_end: bool
     current_period_end: str | None
+    payment_provider: str | None
     stripe_customer_id: str | None
 
 
-# ── Helper ────────────────────────────────────────────────────────────
+# ── Stripe Helpers ───────────────────────────────────────────────────
 
 
 def _get_stripe_price_id(tier: str) -> str:
@@ -46,7 +61,6 @@ def _get_stripe_price_id(tier: str) -> str:
 
 
 def _get_or_create_stripe_customer(user: UserRow) -> str:
-    """Get existing Stripe customer or create one. Returns customer ID."""
     session = get_session()
     try:
         sub = session.query(SubscriptionRow).filter_by(user_id=user.id).first()
@@ -55,13 +69,11 @@ def _get_or_create_stripe_customer(user: UserRow) -> str:
     finally:
         session.close()
 
-    # Create Stripe customer
     customer = stripe.Customer.create(
         email=user.email,
         metadata={"user_id": user.id},
     )
 
-    # Store it
     session = get_session()
     try:
         sub = session.query(SubscriptionRow).filter_by(user_id=user.id).first()
@@ -71,6 +83,7 @@ def _get_or_create_stripe_customer(user: UserRow) -> str:
             sub = SubscriptionRow(
                 id=str(uuid.uuid4()),
                 user_id=user.id,
+                payment_provider="stripe",
                 stripe_customer_id=customer.id,
                 tier="free",
                 status="active",
@@ -86,23 +99,44 @@ def _get_or_create_stripe_customer(user: UserRow) -> str:
     return customer.id
 
 
-# ── Routes ────────────────────────────────────────────────────────────
+# ── Routes ───────────────────────────────────────────────────────────
 
 
 @router.get("/tiers")
-def list_tiers():
-    """List all available tiers and their features."""
-    return {
-        key: {
+def list_tiers(region: str = Query(None)):
+    """List tiers with pricing for the given region's currency."""
+    currency = get_currency_for_region(region)
+
+    result = {}
+    for key, t in TIERS.items():
+        pricing = t["pricing"][currency]
+        result[key] = {
             "name": t["name"],
-            "price_monthly": t["price_monthly"],
+            "price_monthly": pricing["price_monthly"],
+            "currency": currency,
+            "currency_symbol": pricing["currency_symbol"],
             "features": t["features"],
             "max_active_jobs": t["max_active_jobs"],
             "ai_chat_messages": t["ai_chat_messages"],
             "can_publish_templates": t["can_publish_templates"],
         }
-        for key, t in TIERS.items()
-    }
+    return result
+
+
+@router.get("/region")
+def get_region(user: UserRow = Depends(get_current_user)):
+    """Get the user's saved region."""
+    region = get_user_region(user.id)
+    return {"region": region}
+
+
+@router.post("/region")
+def update_region(req: SetRegionRequest, user: UserRow = Depends(get_current_user)):
+    """Set the user's region (determines payment provider and currency)."""
+    set_user_region(user.id, req.region)
+    currency = get_currency_for_region(req.region)
+    provider = get_provider_for_region(req.region)
+    return {"region": req.region.upper(), "currency": currency, "provider": provider}
 
 
 @router.get("/subscription", response_model=SubscriptionResponse)
@@ -122,6 +156,7 @@ def get_subscription(user: UserRow = Depends(get_current_user)):
             status="active",
             cancel_at_period_end=False,
             current_period_end=None,
+            payment_provider=None,
             stripe_customer_id=None,
         )
 
@@ -130,26 +165,42 @@ def get_subscription(user: UserRow = Depends(get_current_user)):
         status=sub.status,
         cancel_at_period_end=sub.cancel_at_period_end,
         current_period_end=sub.current_period_end.isoformat() if sub.current_period_end else None,
+        payment_provider=getattr(sub, "payment_provider", "stripe"),
         stripe_customer_id=sub.stripe_customer_id,
     )
 
 
 @router.post("/checkout")
 def create_checkout_session(req: CheckoutRequest, user: UserRow = Depends(get_current_user)):
-    """Create a Stripe Checkout session for upgrading to classic or pro."""
+    """Create a checkout session via Stripe or Paystack based on region."""
     if req.tier not in ("classic", "pro"):
         raise HTTPException(status_code=400, detail="Tier must be 'classic' or 'pro'")
 
+    # Determine region — use request override, then saved, default to non-NG
+    region = req.region or get_user_region(user.id)
+    provider = get_provider_for_region(region)
+
+    # Save region if provided
+    if req.region:
+        set_user_region(user.id, req.region)
+
+    if provider == "paystack":
+        return _checkout_paystack(user, req.tier)
+    else:
+        return _checkout_stripe(user, req.tier)
+
+
+def _checkout_stripe(user: UserRow, tier: str) -> dict:
     if not config.STRIPE_SECRET_KEY:
         raise HTTPException(status_code=503, detail="Stripe is not configured")
 
     try:
-        price_id = _get_stripe_price_id(req.tier)
+        price_id = _get_stripe_price_id(tier)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
     if not price_id:
-        raise HTTPException(status_code=503, detail=f"Stripe price ID not configured for {req.tier}")
+        raise HTTPException(status_code=503, detail=f"Stripe price ID not configured for {tier}")
 
     customer_id = _get_or_create_stripe_customer(user)
 
@@ -161,7 +212,7 @@ def create_checkout_session(req: CheckoutRequest, user: UserRow = Depends(get_cu
             mode="subscription",
             success_url=f"{config.FRONTEND_URL}/settings/billing?success=true",
             cancel_url=f"{config.FRONTEND_URL}/settings/billing?cancelled=true",
-            metadata={"user_id": user.id, "tier": req.tier},
+            metadata={"user_id": user.id, "tier": tier},
         )
     except stripe.error.StripeError as e:
         raise HTTPException(status_code=502, detail=f"Stripe error: {str(e)}")
@@ -169,30 +220,73 @@ def create_checkout_session(req: CheckoutRequest, user: UserRow = Depends(get_cu
     return {"checkout_url": checkout_session.url}
 
 
+def _checkout_paystack(user: UserRow, tier: str) -> dict:
+    if not config.PAYSTACK_SECRET_KEY:
+        raise HTTPException(status_code=503, detail="Paystack is not configured")
+
+    try:
+        plan_code = ps.get_paystack_plan_code(tier)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if not plan_code:
+        raise HTTPException(status_code=503, detail=f"Paystack plan not configured for {tier}")
+
+    pricing = TIERS[tier]["pricing"]["NGN"]
+    amount_kobo = pricing["price_monthly"] * 100
+
+    try:
+        result = ps.initialize_transaction(
+            email=user.email,
+            amount_kobo=amount_kobo,
+            plan_code=plan_code,
+            metadata={"user_id": user.id, "tier": tier},
+            callback_url=f"{config.FRONTEND_URL}/settings/billing?success=true",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Paystack error: {str(e)}")
+
+    return {"checkout_url": result["authorization_url"]}
+
+
 @router.post("/portal")
 def create_portal_session(user: UserRow = Depends(get_current_user)):
-    """Create a Stripe Customer Portal session for managing subscription."""
-    if not config.STRIPE_SECRET_KEY:
-        raise HTTPException(status_code=503, detail="Stripe is not configured")
-
+    """Create a billing management session (Stripe portal or Paystack manage link)."""
     session = get_session()
     try:
         sub = session.query(SubscriptionRow).filter_by(user_id=user.id).first()
     finally:
         session.close()
 
-    if not sub or not sub.stripe_customer_id:
+    if not sub:
         raise HTTPException(status_code=400, detail="No billing account found. Subscribe to a plan first.")
 
-    try:
-        portal_session = stripe.billing_portal.Session.create(
-            customer=sub.stripe_customer_id,
-            return_url=f"{config.FRONTEND_URL}/settings/billing",
-        )
-    except stripe.error.StripeError as e:
-        raise HTTPException(status_code=502, detail=f"Stripe error: {str(e)}")
+    provider = getattr(sub, "payment_provider", "stripe")
 
-    return {"portal_url": portal_session.url}
+    if provider == "paystack":
+        sub_code = getattr(sub, "paystack_subscription_code", None)
+        if not sub_code:
+            raise HTTPException(status_code=400, detail="No Paystack subscription found.")
+        manage_url = ps.get_manage_subscription_link(sub_code)
+        return {"portal_url": manage_url}
+    else:
+        if not config.STRIPE_SECRET_KEY:
+            raise HTTPException(status_code=503, detail="Stripe is not configured")
+        if not sub.stripe_customer_id:
+            raise HTTPException(status_code=400, detail="No Stripe customer found.")
+
+        try:
+            portal_session = stripe.billing_portal.Session.create(
+                customer=sub.stripe_customer_id,
+                return_url=f"{config.FRONTEND_URL}/settings/billing",
+            )
+        except stripe.error.StripeError as e:
+            raise HTTPException(status_code=502, detail=f"Stripe error: {str(e)}")
+
+        return {"portal_url": portal_session.url}
+
+
+# ── Stripe Webhook ───────────────────────────────────────────────────
 
 
 @router.post("/webhook")
@@ -213,27 +307,26 @@ async def stripe_webhook(request: Request):
     except stripe.error.SignatureVerificationError:
         raise HTTPException(status_code=400, detail="Invalid signature")
 
-    # Handle the event
     event_type = event["type"]
     data = event["data"]["object"]
 
-    if event_type == "checkout.session.completed":
-        _handle_checkout_completed(data)
-    elif event_type == "customer.subscription.updated":
-        _handle_subscription_updated(data)
-    elif event_type == "customer.subscription.deleted":
-        _handle_subscription_deleted(data)
-    elif event_type == "invoice.payment_failed":
-        _handle_payment_failed(data)
+    try:
+        if event_type == "checkout.session.completed":
+            _handle_stripe_checkout(data)
+        elif event_type == "customer.subscription.updated":
+            _handle_stripe_subscription_updated(data)
+        elif event_type == "customer.subscription.deleted":
+            _handle_stripe_subscription_deleted(data)
+        elif event_type == "invoice.payment_failed":
+            _handle_stripe_payment_failed(data)
+    except Exception as e:
+        logger.error(f"Stripe webhook handler error: {e}")
+        # Return 200 anyway so Stripe doesn't keep retrying
 
     return {"received": True}
 
 
-# ── Webhook Handlers ──────────────────────────────────────────────────
-
-
-def _handle_checkout_completed(session_data: dict):
-    """Upgrade user after successful checkout."""
+def _handle_stripe_checkout(session_data: dict):
     user_id = session_data.get("metadata", {}).get("user_id")
     tier = session_data.get("metadata", {}).get("tier")
     subscription_id = session_data.get("subscription")
@@ -250,6 +343,7 @@ def _handle_checkout_completed(session_data: dict):
         if sub:
             sub.tier = tier
             sub.status = "active"
+            sub.payment_provider = "stripe"
             sub.stripe_subscription_id = subscription_id
             sub.stripe_customer_id = customer_id
             sub.updated_at = datetime.utcnow()
@@ -257,6 +351,7 @@ def _handle_checkout_completed(session_data: dict):
             sub = SubscriptionRow(
                 id=str(uuid.uuid4()),
                 user_id=user_id,
+                payment_provider="stripe",
                 stripe_customer_id=customer_id,
                 stripe_subscription_id=subscription_id,
                 tier=tier,
@@ -271,13 +366,11 @@ def _handle_checkout_completed(session_data: dict):
         db_session.close()
 
 
-def _handle_subscription_updated(sub_data: dict):
-    """Handle subscription changes (upgrade, downgrade, renewal)."""
+def _handle_stripe_subscription_updated(sub_data: dict):
     stripe_sub_id = sub_data.get("id")
-    status = sub_data.get("status")
+    sub_status = sub_data.get("status")
     cancel_at_period_end = sub_data.get("cancel_at_period_end", False)
 
-    # Map Stripe price to tier
     items = sub_data.get("items", {}).get("data", [])
     price_id = items[0]["price"]["id"] if items else None
     tier = "free"
@@ -294,17 +387,14 @@ def _handle_subscription_updated(sub_data: dict):
         sub = db_session.query(SubscriptionRow).filter_by(stripe_subscription_id=stripe_sub_id).first()
         if sub:
             sub.tier = tier
-            sub.status = status
+            sub.status = sub_status
             sub.cancel_at_period_end = cancel_at_period_end
             if period_start:
                 sub.current_period_start = datetime.utcfromtimestamp(period_start)
             if period_end:
                 sub.current_period_end = datetime.utcfromtimestamp(period_end)
             sub.updated_at = datetime.utcnow()
-
-            # Update user tier
-            update_user_tier(sub.user_id, tier if status == "active" else "free")
-
+            update_user_tier(sub.user_id, tier if sub_status == "active" else "free")
             db_session.commit()
     except Exception:
         db_session.rollback()
@@ -313,8 +403,7 @@ def _handle_subscription_updated(sub_data: dict):
         db_session.close()
 
 
-def _handle_subscription_deleted(sub_data: dict):
-    """Handle subscription cancellation."""
+def _handle_stripe_subscription_deleted(sub_data: dict):
     stripe_sub_id = sub_data.get("id")
 
     db_session = get_session()
@@ -333,8 +422,7 @@ def _handle_subscription_deleted(sub_data: dict):
         db_session.close()
 
 
-def _handle_payment_failed(invoice_data: dict):
-    """Handle failed payment — mark subscription as past_due."""
+def _handle_stripe_payment_failed(invoice_data: dict):
     subscription_id = invoice_data.get("subscription")
     if not subscription_id:
         return
@@ -342,6 +430,154 @@ def _handle_payment_failed(invoice_data: dict):
     db_session = get_session()
     try:
         sub = db_session.query(SubscriptionRow).filter_by(stripe_subscription_id=subscription_id).first()
+        if sub:
+            sub.status = "past_due"
+            sub.updated_at = datetime.utcnow()
+            db_session.commit()
+    except Exception:
+        db_session.rollback()
+        raise
+    finally:
+        db_session.close()
+
+
+# ── Paystack Webhook ─────────────────────────────────────────────────
+
+
+@router.post("/webhook/paystack")
+async def paystack_webhook(request: Request):
+    """Handle Paystack webhook events."""
+    payload = await request.body()
+    signature = request.headers.get("x-paystack-signature", "")
+
+    if not ps.verify_webhook_signature(payload, signature):
+        raise HTTPException(status_code=400, detail="Invalid signature")
+
+    import json
+    try:
+        event = json.loads(payload)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid payload")
+
+    event_type = event.get("event", "")
+    data = event.get("data", {})
+
+    try:
+        if event_type == "charge.success":
+            _handle_paystack_charge_success(data)
+        elif event_type == "subscription.create":
+            _handle_paystack_subscription_create(data)
+        elif event_type in ("subscription.disable", "subscription.not_renew"):
+            _handle_paystack_subscription_cancelled(data)
+        elif event_type == "invoice.payment_failed":
+            _handle_paystack_payment_failed(data)
+    except Exception as e:
+        logger.error(f"Paystack webhook handler error: {e}")
+
+    return {"received": True}
+
+
+def _handle_paystack_charge_success(data: dict):
+    """Handle successful charge — subscription is auto-created by Paystack when plan is attached."""
+    metadata = data.get("metadata", {})
+    user_id = metadata.get("user_id")
+    tier = metadata.get("tier")
+    customer = data.get("customer", {})
+    customer_code = customer.get("customer_code", "")
+
+    if not user_id or not tier:
+        return
+
+    update_user_tier(user_id, tier)
+
+    db_session = get_session()
+    try:
+        sub = db_session.query(SubscriptionRow).filter_by(user_id=user_id).first()
+        if sub:
+            sub.tier = tier
+            sub.status = "active"
+            sub.payment_provider = "paystack"
+            sub.paystack_customer_code = customer_code
+            sub.updated_at = datetime.utcnow()
+        else:
+            sub = SubscriptionRow(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                payment_provider="paystack",
+                paystack_customer_code=customer_code,
+                tier=tier,
+                status="active",
+            )
+            db_session.add(sub)
+        db_session.commit()
+    except Exception:
+        db_session.rollback()
+        raise
+    finally:
+        db_session.close()
+
+
+def _handle_paystack_subscription_create(data: dict):
+    """Handle subscription creation — update the subscription code."""
+    subscription_code = data.get("subscription_code", "")
+    customer = data.get("customer", {})
+    customer_code = customer.get("customer_code", "")
+    email_token = data.get("email_token", "")
+
+    plan = data.get("plan", {})
+    plan_code = plan.get("plan_code", "")
+
+    tier = "free"
+    if plan_code == config.PAYSTACK_PLAN_CLASSIC:
+        tier = "classic"
+    elif plan_code == config.PAYSTACK_PLAN_PRO:
+        tier = "pro"
+
+    db_session = get_session()
+    try:
+        sub = db_session.query(SubscriptionRow).filter_by(paystack_customer_code=customer_code).first()
+        if sub:
+            sub.paystack_subscription_code = subscription_code
+            sub.tier = tier
+            sub.status = "active"
+            sub.updated_at = datetime.utcnow()
+            update_user_tier(sub.user_id, tier)
+            db_session.commit()
+    except Exception:
+        db_session.rollback()
+        raise
+    finally:
+        db_session.close()
+
+
+def _handle_paystack_subscription_cancelled(data: dict):
+    """Handle subscription cancellation/disable."""
+    subscription_code = data.get("subscription_code", "")
+
+    db_session = get_session()
+    try:
+        sub = db_session.query(SubscriptionRow).filter_by(paystack_subscription_code=subscription_code).first()
+        if sub:
+            sub.status = "cancelled"
+            sub.tier = "free"
+            sub.updated_at = datetime.utcnow()
+            update_user_tier(sub.user_id, "free")
+            db_session.commit()
+    except Exception:
+        db_session.rollback()
+        raise
+    finally:
+        db_session.close()
+
+
+def _handle_paystack_payment_failed(data: dict):
+    """Handle failed payment."""
+    subscription = data.get("subscription", {})
+    subscription_code = subscription.get("subscription_code", "")
+
+    db_session = get_session()
+    try:
+        sub = db_session.query(SubscriptionRow).filter_by(paystack_subscription_code=subscription_code).first()
         if sub:
             sub.status = "past_due"
             sub.updated_at = datetime.utcnow()
