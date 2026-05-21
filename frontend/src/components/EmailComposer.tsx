@@ -243,9 +243,9 @@ export default function EmailComposer({
 
       {/* AI tab */}
       {activeTab === "ai" && (
-        <div className="flex flex-col" style={{ height: 420 }}>
+        <div className="flex flex-col h-[320px] sm:h-[420px]">
           {/* Chat messages */}
-          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3 bg-gray-50/50">
+          <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 space-y-3 bg-gray-50/50">
             {messages.map((msg) => (
               <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                 {msg.role === "system" ? (

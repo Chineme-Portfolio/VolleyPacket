@@ -145,30 +145,30 @@ export default function JobDetailPage() {
         Back to Jobs
       </Link>
 
-      <div className="flex items-start justify-between mb-6">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-gray-900">{job.candidate_file || "Untitled Job"}</h1>
-            <span className={`text-xs font-medium px-2.5 py-1 rounded-lg capitalize ${statusColor(job.status)}`}>
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">{job.candidate_file || "Untitled Job"}</h1>
+            <span className={`text-xs font-medium px-2.5 py-1 rounded-lg capitalize flex-shrink-0 ${statusColor(job.status)}`}>
               {job.status}
             </span>
           </div>
           <p className="text-sm text-gray-500 mt-1">
-            {job.candidate_count} candidates · Template: {job.template_id || "None"} · {job.is_allocated ? "Allocated" : "Not allocated"}
+            {job.candidate_count} candidates · {job.is_allocated ? "Allocated" : "Not allocated"}
           </p>
-          <p className="text-xs text-gray-400 mt-0.5">ID: {job.job_id}</p>
+          <p className="text-xs text-gray-400 mt-0.5 truncate">ID: {job.job_id}</p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
           {/* Re-upload */}
           <input type="file" ref={fileInputRef} onChange={handleReupload} accept=".xlsx,.xls,.csv" className="hidden" />
           {!isTerminal && (
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={actionLoading === "reupload"}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50"
+              className="px-3 sm:px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50"
             >
-              Re-upload Data
+              Re-upload
             </button>
           )}
 
@@ -177,9 +177,9 @@ export default function JobDetailPage() {
             <button
               onClick={() => doAction("cancel", () => cancelJob(jobId))}
               disabled={actionLoading === "cancel"}
-              className="px-4 py-2 text-sm font-medium text-red-600 bg-white border border-red-200 rounded-xl hover:bg-red-50 transition-colors disabled:opacity-50"
+              className="px-3 sm:px-4 py-2 text-sm font-medium text-red-600 bg-white border border-red-200 rounded-xl hover:bg-red-50 transition-colors disabled:opacity-50"
             >
-              {actionLoading === "cancel" ? "Cancelling..." : "Cancel Job"}
+              {actionLoading === "cancel" ? "Cancelling..." : "Cancel"}
             </button>
           )}
         </div>
@@ -198,7 +198,7 @@ export default function JobDetailPage() {
 
       {/* Allocate banner */}
       {canAllocate && (
-        <div className="flex items-center justify-between bg-blue-50 border border-blue-100 rounded-2xl px-5 py-4 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-blue-50 border border-blue-100 rounded-2xl px-4 sm:px-5 py-4 mb-6">
           <div>
             <p className="text-sm font-medium text-blue-900">Data needs allocation</p>
             <p className="text-xs text-blue-700 mt-0.5">Assign exam halls and time slots to candidates before generating PDFs.</p>
@@ -206,7 +206,7 @@ export default function JobDetailPage() {
           <button
             onClick={() => doAction("allocate", () => allocateJob(jobId))}
             disabled={actionLoading === "allocate"}
-            className="px-5 py-2 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50"
+            className="px-5 py-2 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 self-start sm:self-auto flex-shrink-0"
           >
             {actionLoading === "allocate" ? "Allocating..." : "Allocate Now"}
           </button>
@@ -374,9 +374,9 @@ export default function JobDetailPage() {
       {/* Report section */}
       {emailsComplete && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center flex-shrink-0">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#047857" strokeWidth="2">
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
                   <path d="M14 2v6h6" />
@@ -390,7 +390,7 @@ export default function JobDetailPage() {
             </div>
             <a
               href={getReportUrl(jobId)}
-              className="px-5 py-2 text-sm font-medium text-white bg-green-800 rounded-xl hover:bg-green-900 transition-colors"
+              className="px-5 py-2 text-sm font-medium text-white bg-green-800 rounded-xl hover:bg-green-900 transition-colors text-center flex-shrink-0"
             >
               Download Report
             </a>

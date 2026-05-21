@@ -150,14 +150,14 @@ export default function EmailSettingsPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-start justify-between mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6 sm:mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Email Settings</h1>
-          <p className="text-gray-500 mt-1">Connect your email service to start sending.</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Email Settings</h1>
+          <p className="text-gray-500 mt-1 text-sm">Connect your email service to start sending.</p>
         </div>
         <Link
           href="/guides"
-          className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-green-700 bg-green-50 rounded-xl hover:bg-green-100 transition-colors"
+          className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-green-700 bg-green-50 rounded-xl hover:bg-green-100 transition-colors self-start"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <circle cx="12" cy="12" r="10" />
@@ -200,7 +200,7 @@ export default function EmailSettingsPage() {
         <h2 className="text-lg font-semibold text-gray-900 mb-1">Email Provider</h2>
         <p className="text-sm text-gray-500 mb-5">Choose how you want to send emails.</p>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
           {PROVIDERS.map((p) => (
             <button
               key={p.value}
@@ -270,7 +270,7 @@ export default function EmailSettingsPage() {
           </div>
 
           {/* Actions */}
-          <div className="flex items-center gap-3 mt-6">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mt-6">
             <button
               onClick={handleSave}
               disabled={saving}

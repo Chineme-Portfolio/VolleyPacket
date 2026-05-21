@@ -183,14 +183,14 @@ export default function TemplatesPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-start justify-between mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6 sm:mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Templates</h1>
-          <p className="text-gray-500 mt-1">Manage and create exam invitation templates.</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Templates</h1>
+          <p className="text-gray-500 mt-1 text-sm">Manage and create exam invitation templates.</p>
         </div>
         <Link
-          href="/"
-          className="flex items-center gap-2 px-5 py-2.5 bg-white text-gray-700 text-sm font-medium rounded-xl border border-gray-200 hover:bg-gray-50 transition-colors"
+          href="/dashboard"
+          className="flex items-center gap-2 px-4 sm:px-5 py-2.5 bg-white text-gray-700 text-sm font-medium rounded-xl border border-gray-200 hover:bg-gray-50 transition-colors self-start"
         >
           Dashboard
         </Link>
@@ -204,12 +204,12 @@ export default function TemplatesPage() {
         </div>
 
         {/* Filter tabs */}
-        <div className="flex gap-1 mb-5 border-b border-gray-100 pb-0">
+        <div className="flex gap-1 mb-5 border-b border-gray-100 pb-0 overflow-x-auto -mx-2 px-2">
           {FILTERS.map((f) => (
             <button
               key={f.key}
               onClick={() => setActiveFilter(f.key)}
-              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+              className={`px-3 sm:px-4 py-2 text-sm font-medium rounded-t-lg transition-colors whitespace-nowrap ${
                 activeFilter === f.key
                   ? "bg-green-50 text-green-800 border-b-2 border-green-700"
                   : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
@@ -261,7 +261,7 @@ export default function TemplatesPage() {
         </div>
 
         {/* Chat area */}
-        <div className="h-[420px] overflow-y-auto px-6 py-4 space-y-4 bg-gray-50/50">
+        <div className="h-[320px] sm:h-[420px] overflow-y-auto px-4 sm:px-6 py-4 space-y-4 bg-gray-50/50">
           {messages.map((msg) => (
             <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
               {msg.role === "system" ? (

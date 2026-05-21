@@ -152,16 +152,16 @@ export default function GuidesPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-start justify-between mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6 sm:mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Setup Guides</h1>
-          <p className="text-gray-500 mt-1">Step-by-step instructions for connecting your email service.</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Setup Guides</h1>
+          <p className="text-gray-500 mt-1 text-sm">Step-by-step instructions for connecting your email service.</p>
         </div>
         <Link
           href="/settings/email"
-          className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
+          className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors self-start"
         >
-          Go to Email Settings
+          Email Settings
         </Link>
       </div>
 
@@ -199,9 +199,9 @@ export default function GuidesPage() {
 
       {/* Expanded guide */}
       {selected && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 sm:p-8">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-bold text-gray-900">{selected.name} Setup</h2>
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-900">{selected.name} Setup</h2>
             <span className="text-sm text-gray-500">{selected.steps.length} steps</span>
           </div>
 

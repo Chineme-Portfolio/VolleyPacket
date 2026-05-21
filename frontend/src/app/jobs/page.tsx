@@ -61,16 +61,16 @@ export default function JobsPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-start justify-between mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6 sm:mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Jobs</h1>
-          <p className="text-gray-500 mt-1">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Jobs</h1>
+          <p className="text-gray-500 mt-1 text-sm">
             {jobs.length} total · {running} running · {completed} completed
           </p>
         </div>
         <button
           onClick={() => setShowNewJob(true)}
-          className="flex items-center gap-2 px-5 py-2.5 bg-green-800 text-white text-sm font-medium rounded-xl hover:bg-green-900 transition-colors"
+          className="flex items-center gap-2 px-4 sm:px-5 py-2.5 bg-green-800 text-white text-sm font-medium rounded-xl hover:bg-green-900 transition-colors self-start"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
             <path d="M12 5v14M5 12h14" />
@@ -101,7 +101,53 @@ export default function JobsPage() {
             </button>
           </div>
         ) : (
-          <table className="w-full">
+          <>
+          {/* Mobile: card layout */}
+          <div className="lg:hidden divide-y divide-gray-100">
+            {jobs.map((job) => (
+              <div
+                key={job.job_id}
+                className="p-4 hover:bg-gray-50/50 transition-colors cursor-pointer"
+                onClick={() => router.push(`/jobs/${job.job_id}`)}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 rounded-xl bg-green-50 flex items-center justify-center flex-shrink-0">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#047857" strokeWidth="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+                        <path d="M14 2v6h6" />
+                      </svg>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{job.candidate_file || "Untitled"}</p>
+                      <p className="text-xs text-gray-400 truncate">{job.candidate_count} candidates</p>
+                    </div>
+                  </div>
+                  <span className={`text-xs font-medium px-2.5 py-1 rounded-lg capitalize flex-shrink-0 ${statusBadge(job.status)}`}>
+                    {job.status}
+                  </span>
+                </div>
+                <div className="mt-2 ml-12 flex items-center justify-between">
+                  <p className="text-xs text-gray-500">{taskSummary(job)}</p>
+                  {(job.status === "created" || job.status === "running") && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCancel(job.job_id);
+                      }}
+                      disabled={cancellingId === job.job_id}
+                      className="text-xs font-medium text-red-600 hover:text-red-700 px-2 py-1 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
+                    >
+                      {cancellingId === job.job_id ? "..." : "Cancel"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop: table layout */}
+          <table className="w-full hidden lg:table">
             <thead>
               <tr className="border-b border-gray-100">
                 <th className="text-left text-xs font-semibold text-gray-400 uppercase tracking-wider px-6 py-3">File</th>
@@ -159,6 +205,7 @@ export default function JobsPage() {
               ))}
             </tbody>
           </table>
+          </>
         )}
       </div>
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import Sidebar from "@/components/Sidebar";
@@ -10,6 +11,7 @@ const PUBLIC_PAGES = ["/login", "/signup", "/"];
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { loading } = useAuth();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Auth pages — no sidebar/topbar
   if (PUBLIC_PAGES.includes(pathname)) {
@@ -28,10 +30,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // Authenticated layout
   return (
     <div className="flex">
-      <Sidebar />
-      <div className="flex-1 flex flex-col ml-60 min-w-0 overflow-hidden">
-        <Topbar />
-        <main className="flex-1 p-8 overflow-auto min-w-0">{children}</main>
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <div className="flex-1 flex flex-col ml-0 lg:ml-60 min-w-0 overflow-hidden">
+        <Topbar onMenuToggle={() => setSidebarOpen(true)} />
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-auto min-w-0">{children}</main>
       </div>
     </div>
   );

@@ -119,10 +119,10 @@ export default function BillingPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-start justify-between mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6 sm:mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Billing & Subscription</h1>
-          <p className="text-gray-500 mt-1">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Billing & Subscription</h1>
+          <p className="text-gray-500 mt-1 text-sm">
             Choose the plan that fits your workflow.
             {region && (
               <span className="ml-2 text-xs text-gray-400">
@@ -155,7 +155,7 @@ export default function BillingPage() {
         </div>
         <Link
           href="/settings"
-          className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
+          className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors self-start flex-shrink-0"
         >
           Back to Settings
         </Link>
@@ -175,7 +175,7 @@ export default function BillingPage() {
       )}
 
       {/* Current plan banner */}
-      <div className="mb-8 flex items-center gap-3 bg-green-50 border border-green-100 rounded-2xl px-5 py-4">
+      <div className="mb-6 sm:mb-8 flex flex-col sm:flex-row sm:items-center gap-3 bg-green-50 border border-green-100 rounded-2xl px-4 sm:px-5 py-4">
         <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
         <div className="flex-1">
           <p className="text-sm font-medium text-green-900">
