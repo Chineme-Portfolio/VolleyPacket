@@ -176,15 +176,40 @@ class S3Storage(StorageBackend):
 
     def __init__(self):
         import boto3
-        self._bucket = os.getenv("S3_BUCKET")
-        if not self._bucket:
-            raise ValueError("S3_BUCKET environment variable is required for S3 storage")
 
-        endpoint_url = os.getenv("S3_ENDPOINT_URL")  # For Railway/MinIO
+        # Railway injects: BUCKET, ACCESS_KEY_ID, SECRET_ACCESS_KEY, ENDPOINT, REGION
+        # Also support explicit S3_* and AWS_* prefixed vars for other providers
+        self._bucket = (
+            os.getenv("S3_BUCKET")
+            or os.getenv("BUCKET")
+            or os.getenv("AWS_S3_BUCKET")
+        )
+        if not self._bucket:
+            raise ValueError(
+                "No S3 bucket configured. Set BUCKET (Railway), S3_BUCKET, or AWS_S3_BUCKET."
+            )
+
+        endpoint_url = (
+            os.getenv("S3_ENDPOINT_URL")
+            or os.getenv("ENDPOINT")
+        )
         s3_kwargs = {
-            "aws_access_key_id": os.getenv("S3_ACCESS_KEY_ID", os.getenv("AWS_ACCESS_KEY_ID")),
-            "aws_secret_access_key": os.getenv("S3_SECRET_ACCESS_KEY", os.getenv("AWS_SECRET_ACCESS_KEY")),
-            "region_name": os.getenv("S3_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1")),
+            "aws_access_key_id": (
+                os.getenv("S3_ACCESS_KEY_ID")
+                or os.getenv("ACCESS_KEY_ID")
+                or os.getenv("AWS_ACCESS_KEY_ID")
+            ),
+            "aws_secret_access_key": (
+                os.getenv("S3_SECRET_ACCESS_KEY")
+                or os.getenv("SECRET_ACCESS_KEY")
+                or os.getenv("AWS_SECRET_ACCESS_KEY")
+            ),
+            "region_name": (
+                os.getenv("S3_REGION")
+                or os.getenv("REGION")
+                or os.getenv("AWS_DEFAULT_REGION")
+                or "us-east-1"
+            ),
         }
         if endpoint_url:
             s3_kwargs["endpoint_url"] = endpoint_url
@@ -402,13 +427,19 @@ _storage: StorageBackend | None = None
 
 
 def get_storage() -> StorageBackend:
-    """Get the configured storage backend (lazy singleton)."""
+    """Get the configured storage backend (lazy singleton).
+    Auto-detects Railway: if BUCKET env var exists, uses S3 automatically."""
     global _storage
     if _storage is None:
-        backend = os.getenv("STORAGE_BACKEND", "local").lower()
+        backend = os.getenv("STORAGE_BACKEND", "").lower()
+
+        # Auto-detect: Railway sets BUCKET when an object store is linked
+        if not backend:
+            backend = "s3" if os.getenv("BUCKET") else "local"
+
         if backend == "s3":
             _storage = S3Storage()
-            logger.info("Storage backend: S3 (%s)", os.getenv("S3_BUCKET"))
+            logger.info("Storage backend: S3 (%s)", _storage._bucket)
         else:
             _storage = LocalStorage()
             logger.info("Storage backend: local filesystem")
