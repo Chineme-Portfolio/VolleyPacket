@@ -18,6 +18,7 @@ from typing import Optional
 
 from app.models import TemplateConfig, SaveTemplateRequest
 from app.services.template_renderer import render_preview
+from app.services.storage import store
 from app.database import get_session, UserRow, TemplateRow
 from app.dependencies import get_current_user
 from app.services.billing import get_user_tier, check_template_access, get_tier_limits
@@ -186,11 +187,8 @@ def preview_template(template_id: str, user: UserRow = Depends(get_current_user)
     os.makedirs(config.OUTPUT_FOLDER, exist_ok=True)
     preview_path = os.path.join(config.OUTPUT_FOLDER, f"preview_{template_id}.pdf")
     render_preview(template, preview_path)
-    return FileResponse(
-        preview_path,
-        media_type="application/pdf",
-        headers={"Content-Disposition": "inline"},
-    )
+    store.save_local_file(preview_path)
+    return store.serve_inline(f"output/preview_{template_id}.pdf", media_type="application/pdf")
 
 
 @router.post("/save")
@@ -236,11 +234,12 @@ def save_template(request: SaveTemplateRequest, user: UserRow = Depends(get_curr
     finally:
         session.close()
 
-    # Also save to disk for backward compatibility
+    # Also save to disk for backward compatibility + S3 sync
     os.makedirs(config.TEMPLATE_FOLDER, exist_ok=True)
     path = os.path.join(config.TEMPLATE_FOLDER, f"{template.id}.json")
     with open(path, "w") as f:
         json.dump(template.model_dump(), f, indent=2)
+    store.save_local_file(path)
 
     return {"message": "Template saved", "id": template.id}
 
@@ -310,9 +309,7 @@ def delete_template(template_id: str, user: UserRow = Depends(get_current_user))
     finally:
         session.close()
 
-    # Remove from disk too
-    path = os.path.join(config.TEMPLATE_FOLDER, f"{template_id}.json")
-    if os.path.isfile(path):
-        os.remove(path)
+    # Remove from disk and S3
+    store.delete(f"templates/{template_id}.json")
 
     return {"message": "Template deleted"}

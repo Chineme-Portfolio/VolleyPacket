@@ -4,6 +4,7 @@ import re
 import pandas as pd
 
 from app.services.jobs import Job
+from app.services.storage import store, _key_from_local
 from app import config
 
 
@@ -22,8 +23,11 @@ def generate_report(job: Job) -> str:
 
     # Source 2: Our own run log (written by email_tasks.py)
     run_log = pd.DataFrame()
-    if job.log_path and os.path.isfile(job.log_path):
-        run_log = pd.read_csv(job.log_path)
+    if job.log_path:
+        log_key = _key_from_local(job.log_path)
+        if store.exists(log_key):
+            local_log = store.ensure_local(log_key)
+            run_log = pd.read_csv(local_log)
         run_log = run_log.fillna("")
         run_log["_email_key"] = run_log["Email"].astype(str).str.strip().str.lower()
 

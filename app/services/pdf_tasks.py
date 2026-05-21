@@ -5,6 +5,7 @@ import threading
 from app.services.jobs import Job
 from app.services.template_renderer import render_pdf
 from app.services.generator import safe_filename, download_photo
+from app.services.storage import store
 from app import config
 
 
@@ -52,6 +53,7 @@ def run_pdf_generation(job: Job):
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for filename in os.listdir(pdf_folder):
                 zf.write(os.path.join(pdf_folder, filename), filename)
+        store.save_local_file(zip_path)
 
         task.status = "complete"
         task.phase = "complete"

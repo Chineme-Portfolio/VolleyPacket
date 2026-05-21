@@ -29,3 +29,4 @@ PyJWT
 cryptography
 email-validator
 stripe
+boto3

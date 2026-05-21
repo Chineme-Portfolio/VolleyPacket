@@ -5,6 +5,7 @@ import threading
 from app.services.jobs import Job
 from app.services.generator import safe_filename
 from app.services.email_providers import EmailProvider, EmailMessage
+from app.services.storage import store, _key_from_local
 from app import config
 
 
@@ -155,6 +156,7 @@ def run_email_send(job: Job, provider: EmailProvider, from_name: str, from_email
                 task.progress = idx + 1
                 task.phase = "sending"
 
+        store.save_local_file(log_path)
         task.status = "complete"
         task.phase = "complete"
         job.save()

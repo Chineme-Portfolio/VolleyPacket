@@ -7,6 +7,7 @@ import urllib.request
 from PIL import Image, ImageOps
 
 from app.services.jobs import Job
+from app.services.storage import store
 from app import config
 
 
@@ -107,6 +108,7 @@ def run_photo_download(job: Job):
                 log_file.flush()
                 task.progress = idx + 1
 
+        store.save_local_file(log_path)
         task.status = "complete"
         task.phase = "complete"
         job.save()

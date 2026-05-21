@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 from app.models import GenerateTemplateRequest, TemplateConfig
 from app.services.ai_generator import generate_template_from_content
 from app.services.template_renderer import render_preview
+from app.services.storage import store
 from app.dependencies import get_current_user
 from app.database import UserRow
 from app import config
@@ -30,8 +31,5 @@ def preview_generated_template(template: TemplateConfig, user: UserRow = Depends
     os.makedirs(config.OUTPUT_FOLDER, exist_ok=True)
     preview_path = os.path.join(config.OUTPUT_FOLDER, f"preview_{template.id}.pdf")
     render_preview(template, preview_path)
-    return FileResponse(
-        preview_path,
-        media_type="application/pdf",
-        headers={"Content-Disposition": "inline"},
-    )
+    store.save_local_file(preview_path)
+    return store.serve_inline(f"output/preview_{template.id}.pdf", media_type="application/pdf")

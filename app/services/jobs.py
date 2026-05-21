@@ -11,6 +11,7 @@ import pandas as pd
 
 from app.models import TemplateConfig, TaskStatus, JobResponse
 from app.services.allocator import generate_combination_slots, allocate_combinations, assign_numbers, CAPACITY_PER_SLOT
+from app.services.storage import store
 from app import config
 
 logger = logging.getLogger(__name__)
@@ -194,18 +195,33 @@ class Job:
         folder = self._job_folder
         os.makedirs(folder, exist_ok=True)
 
-        with open(os.path.join(folder, "job.json"), "w") as f:
+        job_json_path = os.path.join(folder, "job.json")
+        with open(job_json_path, "w") as f:
             json.dump(self.to_dict(), f, indent=2)
+        store.save_local_file(job_json_path)
 
         if include_data:
-            self.data.to_excel(os.path.join(folder, "data.xlsx"), index=False)
+            data_path = os.path.join(folder, "data.xlsx")
+            self.data.to_excel(data_path, index=False)
+            store.save_local_file(data_path)
             if self.valid_data is not None:
-                self.valid_data.to_excel(os.path.join(folder, "valid_data.xlsx"), index=False)
+                valid_path = os.path.join(folder, "valid_data.xlsx")
+                self.valid_data.to_excel(valid_path, index=False)
+                store.save_local_file(valid_path)
             if self.invalid_data is not None:
-                self.invalid_data.to_excel(os.path.join(folder, "invalid_data.xlsx"), index=False)
+                invalid_path = os.path.join(folder, "invalid_data.xlsx")
+                self.invalid_data.to_excel(invalid_path, index=False)
+                store.save_local_file(invalid_path)
 
     @classmethod
     def from_folder(cls, folder_path: str) -> "Job":
+        from app.services.storage import _key_from_local
+        # Ensure job files are available locally (downloads from S3 if needed)
+        job_json_key = _key_from_local(os.path.join(folder_path, "job.json"))
+        store.ensure_local(job_json_key)
+        data_key = _key_from_local(os.path.join(folder_path, "data.xlsx"))
+        store.ensure_local(data_key)
+
         with open(os.path.join(folder_path, "job.json"), "r") as f:
             d = json.load(f)
 
@@ -309,6 +325,7 @@ class Job:
         os.makedirs(config.DATA_FOLDER, exist_ok=True)
         self.allocated_path = os.path.join(config.DATA_FOLDER, f"allocated_{self.timestamp}.xlsx")
         self.data.to_excel(self.allocated_path, index=False)
+        store.save_local_file(self.allocated_path)
         self.save(include_data=True)
 
     def validate_emails(self):
@@ -326,6 +343,7 @@ class Job:
             os.makedirs(config.LOG_FOLDER, exist_ok=True)
             invalid_path = os.path.join(config.LOG_FOLDER, f"invalid_emails_{self.timestamp}.xlsx")
             self.invalid_data.to_excel(invalid_path, index=False)
+            store.save_local_file(invalid_path)
 
         self.save(include_data=True)
         return len(self.valid_data), len(self.invalid_data)
@@ -374,15 +392,30 @@ def list_jobs_for_user(user_id: str) -> list[Job]:
 
 
 def load_all_jobs():
-    """Load all jobs from JSON files on disk."""
-    if not os.path.isdir(config.JOBS_FOLDER):
-        return
-    for entry in os.listdir(config.JOBS_FOLDER):
+    """Load all jobs from storage (local disk or S3)."""
+    from app.services.storage import _key_from_local
+
+    # List job folders — check local first, then S3
+    job_dirs = set()
+
+    if os.path.isdir(config.JOBS_FOLDER):
+        for entry in os.listdir(config.JOBS_FOLDER):
+            folder = os.path.join(config.JOBS_FOLDER, entry)
+            if os.path.isdir(folder):
+                job_dirs.add(entry)
+
+    # Also check S3 for jobs not cached locally
+    s3_keys = store.list_dir("data/jobs")
+    for key in s3_keys:
+        # key like "data/jobs/abc123/job.json"
+        parts = key.split("/")
+        if len(parts) >= 3:
+            job_dirs.add(parts[2])
+
+    for entry in job_dirs:
         folder = os.path.join(config.JOBS_FOLDER, entry)
-        json_path = os.path.join(folder, "job.json")
-        if os.path.isdir(folder) and os.path.isfile(json_path):
-            try:
-                job = Job.from_folder(folder)
-                _jobs[job.job_id] = job
-            except Exception as e:
-                print(f"Warning: failed to load job {entry}: {e}")
+        try:
+            job = Job.from_folder(folder)
+            _jobs[job.job_id] = job
+        except Exception as e:
+            print(f"Warning: failed to load job {entry}: {e}")

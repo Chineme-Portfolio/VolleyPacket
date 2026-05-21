@@ -7,6 +7,7 @@ import pandas as pd
 import requests
 
 from app.services.jobs import Job
+from app.services.storage import store
 from app import config
 
 
@@ -135,6 +136,7 @@ def run_sms_send(job: Job, detailed: bool = False):
 
                 task.progress = idx + 1
 
+        store.save_local_file(log_path)
         task.status = "complete"
         task.phase = "complete"
         job.save()

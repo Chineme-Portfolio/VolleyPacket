@@ -17,6 +17,7 @@ from app.services.email_tasks import start_email_send
 from app.services.sms_tasks import start_sms_send
 from app.services.photo_tasks import start_photo_download
 from app.services.report_tasks import generate_report
+from app.services.storage import store
 from app.dependencies import get_current_user
 from app.database import UserRow, EmailSettingsRow, get_session
 from app.services.encryption import decrypt_credentials
@@ -93,6 +94,7 @@ async def create_new_job(
     content = await _read_upload(candidate_file)
     with open(save_path, "wb") as f:
         f.write(content)
+    store.save_local_file(save_path)
 
     try:
         if is_allocated:
@@ -186,6 +188,7 @@ async def reupload_data(
     content = await _read_upload(candidate_file)
     with open(save_path, "wb") as f:
         f.write(content)
+    store.save_local_file(save_path)
 
     try:
         if is_allocated:
@@ -218,11 +221,11 @@ def attach_template(job_id: str, request: AttachTemplateRequest, user: UserRow =
     if request.template_id:
         # Sanitize template_id to prevent path traversal
         safe_id = os.path.basename(request.template_id)
-        template_path = os.path.join(config.TEMPLATE_FOLDER, f"{safe_id}.json")
-        if not os.path.isfile(template_path):
+        tpl_key = f"templates/{safe_id}.json"
+        if not store.exists(tpl_key):
             raise HTTPException(status_code=404, detail=f"Template '{safe_id}' not found")
-        with open(template_path, "r") as f:
-            job.template = TemplateConfig(**json.load(f))
+        tpl_data = store.load_bytes(tpl_key)
+        job.template = TemplateConfig(**json.loads(tpl_data))
         job.template_id = safe_id
 
     elif request.template:
@@ -267,6 +270,7 @@ async def set_job_mode(
         content = await _read_upload(static_attachment)
         with open(save_path, "wb") as f:
             f.write(content)
+        store.save_local_file(save_path)
         job.static_attachment_path = save_path
 
     job.save()
@@ -348,11 +352,11 @@ def download_pdfs(job_id: str, user: UserRow = Depends(get_current_user)):
     if task.status != "complete":
         raise HTTPException(status_code=409, detail=f"PDFs not ready (status: {task.status})")
 
-    zip_path = os.path.join(config.OUTPUT_FOLDER, f"pdfs_{job_id}.zip")
-    if not os.path.isfile(zip_path):
+    zip_key = f"output/pdfs_{job_id}.zip"
+    if not store.exists(zip_key):
         raise HTTPException(status_code=404, detail="ZIP file not found")
 
-    return FileResponse(zip_path, media_type="application/zip", filename=f"pdfs_{job_id}.zip")
+    return store.serve(zip_key, media_type="application/zip", filename=f"pdfs_{job_id}.zip")
 
 
 # --- SEND EMAILS ---
@@ -443,11 +447,14 @@ def get_report(job_id: str, user: UserRow = Depends(get_current_user)):
 
     try:
         report_path = generate_report(job)
+        store.save_local_file(report_path)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Report generation failed: {e}")
 
-    return FileResponse(
-        report_path,
+    from app.services.storage import _key_from_local
+    report_key = _key_from_local(report_path)
+    return store.serve(
+        report_key,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         filename=f"report_{job_id}.xlsx",
     )
@@ -498,13 +505,13 @@ def list_job_logs(job_id: str, user: UserRow = Depends(get_current_user)):
     for key, meta in LOG_TYPES.items():
         for ext in (".csv", ".xlsx"):
             filename = f"{meta['prefix']}_{job.timestamp}{ext}"
-            path = os.path.join(config.LOG_FOLDER, filename)
-            if os.path.isfile(path):
+            log_key = f"logs/{filename}"
+            if store.exists(log_key):
                 available.append({
                     "key": key,
                     "label": meta["label"],
                     "filename": filename,
-                    "size": os.path.getsize(path),
+                    "size": store.get_size(log_key),
                 })
                 break
 
@@ -527,9 +534,9 @@ def get_job_log(
     meta = LOG_TYPES[log_key]
     path = None
     for ext in (".csv", ".xlsx"):
-        candidate = os.path.join(config.LOG_FOLDER, f"{meta['prefix']}_{job.timestamp}{ext}")
-        if os.path.isfile(candidate):
-            path = candidate
+        log_storage_key = f"logs/{meta['prefix']}_{job.timestamp}{ext}"
+        if store.exists(log_storage_key):
+            path = store.ensure_local(log_storage_key)
             break
 
     if not path:

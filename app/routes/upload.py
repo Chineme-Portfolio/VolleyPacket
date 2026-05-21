@@ -5,6 +5,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 
 from app.models import UploadResponse
 from app.services.document_parser import parse_file
+from app.services.storage import store
 from app.dependencies import get_current_user
 from app.database import UserRow
 from app import config
@@ -36,6 +37,7 @@ async def upload_document(file: UploadFile = File(...), user: UserRow = Depends(
         )
     with open(save_path, "wb") as f:
         f.write(content)
+    store.save_local_file(save_path)
 
     try:
         result = parse_file(save_path)
