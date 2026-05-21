@@ -1,5 +1,14 @@
 import os
+import logging
+import sys
 from contextlib import asynccontextmanager
+
+# Production logging — Railway captures stdout
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    stream=sys.stdout,
+)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,12 +17,24 @@ from app.routes import templates, upload, generate, jobs
 from app.routes import auth, email_settings, billing, ai_email
 from app.services.jobs import load_all_jobs
 from app.database import init_db
+from app import config
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Ensure local working directories exist (even in containers)
+    for folder in (config.UPLOAD_FOLDER, config.OUTPUT_FOLDER, config.TEMPLATE_FOLDER,
+                   config.LOG_FOLDER, config.DATA_FOLDER, config.JOBS_FOLDER):
+        os.makedirs(folder, exist_ok=True)
+
     init_db()
+    logger.info("Database initialized")
+
     load_all_jobs()
+    logger.info("Jobs loaded")
+
     yield
 
 

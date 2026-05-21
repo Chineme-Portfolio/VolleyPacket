@@ -214,7 +214,7 @@ def _checkout_stripe(user: UserRow, tier: str) -> dict:
             cancel_url=f"{config.FRONTEND_URL}/settings/billing?cancelled=true",
             metadata={"user_id": user.id, "tier": tier},
         )
-    except stripe.error.StripeError as e:
+    except stripe.StripeError as e:
         raise HTTPException(status_code=502, detail=f"Stripe error: {str(e)}")
 
     return {"checkout_url": checkout_session.url}
@@ -280,7 +280,7 @@ def create_portal_session(user: UserRow = Depends(get_current_user)):
                 customer=sub.stripe_customer_id,
                 return_url=f"{config.FRONTEND_URL}/settings/billing",
             )
-        except stripe.error.StripeError as e:
+        except stripe.StripeError as e:
             raise HTTPException(status_code=502, detail=f"Stripe error: {str(e)}")
 
         return {"portal_url": portal_session.url}
@@ -304,7 +304,7 @@ async def stripe_webhook(request: Request):
         )
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid payload")
-    except stripe.error.SignatureVerificationError:
+    except stripe.SignatureVerificationError:
         raise HTTPException(status_code=400, detail="Invalid signature")
 
     event_type = event["type"]
