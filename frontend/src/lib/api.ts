@@ -288,16 +288,8 @@ export async function getSubscription(): Promise<Subscription> {
   return fetchJSON("/billing/subscription");
 }
 
-export async function getUserRegion(): Promise<{ region: string | null }> {
+export async function getUserRegion(): Promise<{ region: string | null; locked: boolean }> {
   return fetchJSON("/billing/region");
-}
-
-export async function setUserRegion(region: string): Promise<{ region: string }> {
-  return fetchJSON("/billing/region", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ region }),
-  });
 }
 
 export async function createCheckout(tier: string): Promise<{ checkout_url: string }> {

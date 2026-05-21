@@ -10,7 +10,6 @@ from datetime import datetime
 import stripe
 from fastapi import APIRouter, HTTPException, Depends, Request, Query, status
 from pydantic import BaseModel
-from typing import Optional
 
 from app import config
 from app.database import get_session, UserRow, SubscriptionRow
@@ -33,11 +32,6 @@ stripe.api_key = config.STRIPE_SECRET_KEY
 
 class CheckoutRequest(BaseModel):
     tier: str  # "classic" or "pro"
-    region: Optional[str] = None  # "NG", "US", etc. — overrides saved region
-
-
-class SetRegionRequest(BaseModel):
-    region: str  # ISO country code
 
 
 class SubscriptionResponse(BaseModel):
@@ -124,19 +118,30 @@ def list_tiers(region: str = Query(None)):
 
 
 @router.get("/region")
-def get_region(user: UserRow = Depends(get_current_user)):
-    """Get the user's saved region."""
+def get_region(user: UserRow = Depends(get_current_user), request: Request = None):
+    """
+    Get the user's region. If not set yet, auto-detect from IP and lock it in.
+    Region is immutable once set — prevents currency gaming.
+    """
     region = get_user_region(user.id)
-    return {"region": region}
+    if region:
+        return {"region": region, "locked": True}
 
+    # Auto-detect: check X-Forwarded-For / CF-IPCountry headers, fallback to US
+    detected = "US"
+    if request:
+        # Cloudflare / Vercel set this header
+        cf_country = request.headers.get("cf-ipcountry", "").upper()
+        if cf_country and cf_country != "XX":
+            detected = cf_country
+        else:
+            # Fallback: check if the client hints at Nigeria via Accept-Language
+            accept_lang = request.headers.get("accept-language", "")
+            if "ng" in accept_lang.lower() or "ha" in accept_lang.lower() or "ig" in accept_lang.lower() or "yo" in accept_lang.lower():
+                detected = "NG"
 
-@router.post("/region")
-def update_region(req: SetRegionRequest, user: UserRow = Depends(get_current_user)):
-    """Set the user's region (determines payment provider and currency)."""
-    set_user_region(user.id, req.region)
-    currency = get_currency_for_region(req.region)
-    provider = get_provider_for_region(req.region)
-    return {"region": req.region.upper(), "currency": currency, "provider": provider}
+    set_user_region(user.id, detected)
+    return {"region": detected, "locked": True}
 
 
 @router.get("/subscription", response_model=SubscriptionResponse)
@@ -172,17 +177,12 @@ def get_subscription(user: UserRow = Depends(get_current_user)):
 
 @router.post("/checkout")
 def create_checkout_session(req: CheckoutRequest, user: UserRow = Depends(get_current_user)):
-    """Create a checkout session via Stripe or Paystack based on region."""
+    """Create a checkout session via Stripe or Paystack based on user's locked region."""
     if req.tier not in ("classic", "pro"):
         raise HTTPException(status_code=400, detail="Tier must be 'classic' or 'pro'")
 
-    # Determine region — use request override, then saved, default to non-NG
-    region = req.region or get_user_region(user.id)
+    region = get_user_region(user.id)
     provider = get_provider_for_region(region)
-
-    # Save region if provided
-    if req.region:
-        set_user_region(user.id, req.region)
 
     if provider == "paystack":
         return _checkout_paystack(user, req.tier)

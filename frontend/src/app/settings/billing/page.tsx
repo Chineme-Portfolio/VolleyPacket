@@ -8,7 +8,6 @@ import {
   getTiers,
   getSubscription,
   getUserRegion,
-  setUserRegion,
   createCheckout,
   createPortalSession,
   TierInfo,
@@ -46,7 +45,7 @@ export default function BillingPage() {
   const searchParams = useSearchParams();
   const [tiers, setTiers] = useState<Record<string, TierInfo> | null>(null);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
-  const [region, setRegion] = useState<string>("US");
+  const [region, setRegion] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
@@ -64,6 +63,7 @@ export default function BillingPage() {
   }, [success, cancelled]);
 
   useEffect(() => {
+    // Region is auto-detected and locked on first call
     Promise.all([getUserRegion(), getSubscription()])
       .then(([regionData, sub]) => {
         const userRegion = regionData.region || "US";
@@ -75,18 +75,6 @@ export default function BillingPage() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
-
-  async function handleRegionChange(newRegion: string) {
-    setRegion(newRegion);
-    try {
-      await setUserRegion(newRegion);
-      const t = await getTiers(newRegion);
-      setTiers(t);
-    } catch {
-      // revert on error
-      setRegion(region);
-    }
-  }
 
   async function handleUpgrade(tier: string) {
     setCheckoutLoading(tier);
@@ -129,7 +117,14 @@ export default function BillingPage() {
       <div className="flex items-start justify-between mb-8">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Billing & Subscription</h1>
-          <p className="text-gray-500 mt-1">Choose the plan that fits your workflow.</p>
+          <p className="text-gray-500 mt-1">
+            Choose the plan that fits your workflow.
+            {region && (
+              <span className="ml-2 text-xs text-gray-400">
+                Prices shown in {isNigeria ? "NGN" : "USD"}
+              </span>
+            )}
+          </p>
         </div>
         <Link
           href="/settings"
@@ -137,33 +132,6 @@ export default function BillingPage() {
         >
           Back to Settings
         </Link>
-      </div>
-
-      {/* Region Selector */}
-      <div className="mb-6 flex items-center gap-3">
-        <span className="text-sm font-medium text-gray-700">Your region:</span>
-        <div className="inline-flex rounded-xl border border-gray-200 overflow-hidden">
-          <button
-            onClick={() => handleRegionChange("US")}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              !isNigeria
-                ? "bg-green-800 text-white"
-                : "bg-white text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            International (USD)
-          </button>
-          <button
-            onClick={() => handleRegionChange("NG")}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              isNigeria
-                ? "bg-green-800 text-white"
-                : "bg-white text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            Nigeria (NGN)
-          </button>
-        </div>
       </div>
 
       {/* Message */}
@@ -321,10 +289,10 @@ export default function BillingPage() {
             </p>
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-gray-800">Why are there two payment options?</h3>
+            <h3 className="text-sm font-semibold text-gray-800">How is my currency determined?</h3>
             <p className="text-sm text-gray-500 mt-1">
-              Nigerian users pay in Naira via Paystack for the best local experience. International users pay in USD via Stripe.
-              Select your region above to see pricing in your currency.
+              Your currency is automatically set based on your location when you first visit the billing page.
+              Nigerian users pay in Naira via Paystack, and international users pay in USD via Stripe.
             </p>
           </div>
           <div>
