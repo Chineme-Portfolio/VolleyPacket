@@ -63,7 +63,7 @@ RULES:
     try:
         client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
         message = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=2000,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
