@@ -3,6 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
+import { LogoIcon } from "@/components/Logo";
+import { friendlyError } from "@/lib/errors";
 
 export default function SignupPage() {
   const { signup } = useAuth();
@@ -30,7 +32,7 @@ export default function SignupPage() {
     try {
       await signup(email, password);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Signup failed");
+      setError(friendlyError(err));
     } finally {
       setLoading(false);
     }
@@ -41,13 +43,11 @@ export default function SignupPage() {
       {/* Left — branding */}
       <div className="hidden lg:flex lg:w-1/2 bg-green-800 text-white flex-col justify-center px-16">
         <div className="flex items-center gap-3 mb-8">
-          <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
-              <path d="M22 2L11 13" />
-              <path d="M22 2L15 22L11 13L2 9L22 2Z" />
-            </svg>
+          <LogoIcon size={48} />
+          <div className="flex items-baseline">
+            <span className="text-3xl font-extrabold text-white">Volley</span>
+            <span className="text-3xl font-extrabold text-green-300">Packet</span>
           </div>
-          <span className="text-3xl font-bold">VolleyPacket</span>
         </div>
         <h2 className="text-4xl font-bold leading-tight mb-4">
           Get started<br />in seconds.
@@ -62,13 +62,11 @@ export default function SignupPage() {
         <div className="w-full max-w-md">
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center gap-3 mb-10">
-            <div className="w-10 h-10 rounded-xl bg-green-800 flex items-center justify-center">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
-                <path d="M22 2L11 13" />
-                <path d="M22 2L15 22L11 13L2 9L22 2Z" />
-              </svg>
+            <LogoIcon size={40} />
+            <div className="flex items-baseline">
+              <span className="text-2xl font-extrabold text-gray-900">Volley</span>
+              <span className="text-2xl font-extrabold text-green-800">Packet</span>
             </div>
-            <span className="text-2xl font-bold text-gray-900">VolleyPacket</span>
           </div>
 
           <h1 className="text-2xl font-bold text-gray-900 mb-1">Create your account</h1>

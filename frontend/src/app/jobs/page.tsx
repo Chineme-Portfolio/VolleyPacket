@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { getJobs, cancelJob, Job } from "@/lib/api";
 import { statusBadge } from "@/lib/status";
 import NewJobModal from "@/components/NewJobModal";
+import { useToast } from "@/components/Toast";
+import { friendlyError } from "@/lib/errors";
 
 function taskSummary(job: Job): string {
   const parts: string[] = [];
@@ -18,6 +20,7 @@ function taskSummary(job: Job): string {
 
 export default function JobsPage() {
   const router = useRouter();
+  const { toast } = useToast();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNewJob, setShowNewJob] = useState(false);
@@ -31,8 +34,8 @@ export default function JobsPage() {
     try {
       const data = await getJobs();
       setJobs(data);
-    } catch {
-      // API not available
+    } catch (err) {
+      toast(friendlyError(err));
     } finally {
       setLoading(false);
     }
@@ -43,8 +46,8 @@ export default function JobsPage() {
     try {
       await cancelJob(jobId);
       await loadJobs();
-    } catch {
-      // ignore
+    } catch (err) {
+      toast(friendlyError(err));
     } finally {
       setCancellingId(null);
     }

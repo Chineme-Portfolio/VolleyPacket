@@ -23,7 +23,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null);
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const PUBLIC_PATHS = ["/login", "/signup"];
+const PUBLIC_PATHS = ["/login", "/signup", "/"];
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -49,8 +49,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!user && !PUBLIC_PATHS.includes(pathname)) {
       router.push("/login");
     }
-    if (user && PUBLIC_PATHS.includes(pathname)) {
-      router.push("/");
+    if (user && (pathname === "/login" || pathname === "/signup")) {
+      router.push("/dashboard");
     }
   }, [user, loading, pathname, router]);
 

@@ -1,3 +1,5 @@
+import { parseApiError, parseFetchError } from "@/lib/errors";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 function getAuthHeaders(): Record<string, string> {
@@ -8,22 +10,31 @@ function getAuthHeaders(): Record<string, string> {
 
 export async function fetchAPI(path: string, options?: RequestInit) {
   const authHeaders = getAuthHeaders();
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      ...authHeaders,
-      ...options?.headers,
-    },
-  });
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers: {
+        ...authHeaders,
+        ...options?.headers,
+      },
+    });
+  } catch (networkErr) {
+    // Network failure, DNS error, CORS block, offline, etc.
+    throw new Error(parseFetchError(networkErr));
+  }
+
   if (!res.ok) {
     // Auto-logout on 401 (expired/invalid token)
     if (res.status === 401 && typeof window !== "undefined") {
       localStorage.removeItem("vp_token");
       window.location.href = "/login";
-      throw new Error("Session expired. Please log in again.");
+      throw new Error("Your session has expired. Please sign in again.");
     }
-    const error = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(error.detail || "API request failed");
+    // Parse the backend error into a user-friendly message
+    const message = await parseApiError(res);
+    throw new Error(message);
   }
   return res;
 }

@@ -23,6 +23,8 @@ import {
   Job,
   TaskStatus,
 } from "@/lib/api";
+import { useToast } from "@/components/Toast";
+import { friendlyError } from "@/lib/errors";
 
 function statusColor(status: string) {
   const map: Record<string, string> = {
@@ -46,6 +48,7 @@ const TASK_META: Record<string, { label: string; icon: string; startLabel: strin
 export default function JobDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const { toast } = useToast();
   const jobId = params.id as string;
 
   const [job, setJob] = useState<Job | null>(null);
@@ -60,8 +63,8 @@ export default function JobDetailPage() {
     try {
       const data = await getJob(jobId);
       setJob(data);
-    } catch {
-      setError("Job not found");
+    } catch (err) {
+      setError(friendlyError(err));
     } finally {
       setLoading(false);
     }
@@ -92,7 +95,7 @@ export default function JobDetailPage() {
       await fn();
       await loadJob();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Action failed");
+      setError(friendlyError(err));
     } finally {
       setActionLoading(null);
     }

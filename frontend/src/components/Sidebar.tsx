@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { LogoCompact } from "@/components/Logo";
 
 const menuItems = [
-  { name: "Dashboard", href: "/", icon: DashboardIcon },
+  { name: "Dashboard", href: "/dashboard", icon: DashboardIcon },
   { name: "Jobs", href: "/jobs", icon: JobsIcon },
   { name: "Templates", href: "/templates", icon: TemplatesIcon },
 ];
@@ -21,14 +22,10 @@ export default function Sidebar() {
   return (
     <aside className="fixed left-0 top-0 bottom-0 w-60 bg-white border-r border-gray-200 flex flex-col z-10">
       {/* Logo */}
-      <div className="flex items-center gap-3 px-6 py-6">
-        <div className="w-9 h-9 rounded-xl bg-green-800 flex items-center justify-center">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
-            <path d="M22 2L11 13" />
-            <path d="M22 2L15 22L11 13L2 9L22 2Z" />
-          </svg>
-        </div>
-        <span className="text-xl font-bold text-gray-900">VolleyPacket</span>
+      <div className="px-5 py-5">
+        <Link href="/dashboard">
+          <LogoCompact />
+        </Link>
       </div>
 
       {/* Menu */}
@@ -37,7 +34,7 @@ export default function Sidebar() {
         <ul className="space-y-1">
           {menuItems.map((item) => {
             const isActive = pathname === item.href ||
-              (item.href !== "/" && pathname.startsWith(item.href));
+              (item.href !== "/dashboard" && pathname.startsWith(item.href));
             return (
               <li key={item.name}>
                 <Link

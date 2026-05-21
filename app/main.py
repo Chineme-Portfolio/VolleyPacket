@@ -17,6 +17,7 @@ from app.routes import templates, upload, generate, jobs
 from app.routes import auth, email_settings, billing, ai_email
 from app.services.jobs import load_all_jobs
 from app.database import init_db
+from app.middleware import RequestLoggingMiddleware
 from app import config
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="VolleyPacket", version="2.0.0", lifespan=lifespan)
+
+app.add_middleware(RequestLoggingMiddleware)
 
 cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
 app.add_middleware(

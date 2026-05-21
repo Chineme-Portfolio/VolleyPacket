@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Template, createJob, attachTemplate, getTemplates } from "@/lib/api";
+import { friendlyError } from "@/lib/errors";
 
 interface NewJobModalProps {
   onClose: () => void;
@@ -26,7 +27,7 @@ export default function NewJobModal({ onClose, onCreated }: NewJobModalProps) {
         setTemplates(t);
         if (t.length > 0) setSelectedTemplate(t[0].id);
       })
-      .catch(() => {})
+      .catch((err: unknown) => setError(friendlyError(err)))
       .finally(() => setLoadingTemplates(false));
   }, []);
 
@@ -57,7 +58,7 @@ export default function NewJobModal({ onClose, onCreated }: NewJobModalProps) {
       await attachTemplate(job.job_id, selectedTemplate);
       onCreated(job.job_id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create job");
+      setError(friendlyError(err));
       setSubmitting(false);
     }
   }

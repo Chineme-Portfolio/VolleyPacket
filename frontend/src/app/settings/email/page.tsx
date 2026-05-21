@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { fetchJSON } from "@/lib/api";
+import { friendlyError } from "@/lib/errors";
+import { useToast } from "@/components/Toast";
 
 interface ProviderOption {
   value: string;
@@ -65,6 +67,7 @@ const PROVIDERS: ProviderOption[] = [
 ];
 
 export default function EmailSettingsPage() {
+  const { toast } = useToast();
   const [selectedProvider, setSelectedProvider] = useState("");
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [fromName, setFromName] = useState("");
@@ -91,7 +94,7 @@ export default function EmailSettingsPage() {
           }
         }
       })
-      .catch(() => {});
+      .catch((err: unknown) => toast(friendlyError(err)));
   }, []);
 
   const provider = PROVIDERS.find((p) => p.value === selectedProvider);
@@ -123,7 +126,7 @@ export default function EmailSettingsPage() {
         is_configured: true,
       });
     } catch (err: unknown) {
-      setMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to save" });
+      setMessage({ type: "error", text: friendlyError(err) });
     } finally {
       setSaving(false);
     }
@@ -138,7 +141,7 @@ export default function EmailSettingsPage() {
       });
       setMessage({ type: "success", text: result.message });
     } catch (err: unknown) {
-      setMessage({ type: "error", text: err instanceof Error ? err.message : "Test failed" });
+      setMessage({ type: "error", text: friendlyError(err) });
     } finally {
       setTesting(false);
     }

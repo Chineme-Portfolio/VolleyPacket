@@ -5,14 +5,14 @@ import { useAuth } from "@/lib/auth";
 import Sidebar from "@/components/Sidebar";
 import Topbar from "@/components/Topbar";
 
-const AUTH_PAGES = ["/login", "/signup"];
+const PUBLIC_PAGES = ["/login", "/signup", "/"];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { loading } = useAuth();
 
   // Auth pages — no sidebar/topbar
-  if (AUTH_PAGES.includes(pathname)) {
+  if (PUBLIC_PAGES.includes(pathname)) {
     return <>{children}</>;
   }
 

@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { Template, updateTemplateVisibility, deleteTemplate } from "@/lib/api";
 import PdfPreviewModal from "./PdfPreviewModal";
+import { friendlyError } from "@/lib/errors";
+import { useToast } from "@/components/Toast";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -12,6 +14,7 @@ interface TemplateCardProps {
 }
 
 export default function TemplateCard({ template, onUpdate }: TemplateCardProps) {
+  const { toast } = useToast();
   const [showPreview, setShowPreview] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -26,8 +29,8 @@ export default function TemplateCard({ template, onUpdate }: TemplateCardProps) 
       const newVis = template.visibility === "public" ? "private" : "public";
       await updateTemplateVisibility(template.id, newVis);
       onUpdate?.();
-    } catch {
-      // silently fail
+    } catch (err) {
+      toast(friendlyError(err));
     } finally {
       setToggling(false);
       setShowMenu(false);
@@ -40,8 +43,8 @@ export default function TemplateCard({ template, onUpdate }: TemplateCardProps) 
     try {
       await deleteTemplate(template.id);
       onUpdate?.();
-    } catch {
-      // silently fail
+    } catch (err) {
+      toast(friendlyError(err));
     } finally {
       setDeleting(false);
       setShowMenu(false);

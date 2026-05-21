@@ -2,12 +2,15 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { getJobLogs, getJobLog, LogMeta, LogData } from "@/lib/api";
+import { friendlyError } from "@/lib/errors";
+import { useToast } from "@/components/Toast";
 
 interface JobLogViewerProps {
   jobId: string;
 }
 
 export default function JobLogViewer({ jobId }: JobLogViewerProps) {
+  const { toast } = useToast();
   const [tabs, setTabs] = useState<LogMeta[]>([]);
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [logData, setLogData] = useState<LogData | null>(null);
@@ -22,7 +25,7 @@ export default function JobLogViewer({ jobId }: JobLogViewerProps) {
         setTabs(logs);
         if (logs.length > 0) setActiveTab(logs[0].key);
       })
-      .catch(() => {})
+      .catch((err: unknown) => toast(friendlyError(err)))
       .finally(() => setLoading(false));
   }, [jobId]);
 
@@ -32,7 +35,8 @@ export default function JobLogViewer({ jobId }: JobLogViewerProps) {
       try {
         const data = await getJobLog(jobId, key, PAGE_SIZE, offset);
         setLogData(data);
-      } catch {
+      } catch (err) {
+        toast(friendlyError(err));
         setLogData(null);
       } finally {
         setLogLoading(false);

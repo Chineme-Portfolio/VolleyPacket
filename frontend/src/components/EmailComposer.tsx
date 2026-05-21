@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect } from "react";
 import { setEmailContent, generateEmailAI } from "@/lib/api";
+import { friendlyError } from "@/lib/errors";
+import { useToast } from "@/components/Toast";
 
 interface EmailComposerProps {
   jobId: string;
@@ -26,6 +28,7 @@ export default function EmailComposer({
   initialBody,
   onSaved,
 }: EmailComposerProps) {
+  const { toast } = useToast();
   const [subject, setSubject] = useState(initialSubject);
   const [body, setBody] = useState(initialBody);
   const [saving, setSaving] = useState(false);
@@ -57,8 +60,8 @@ export default function EmailComposer({
       setSaved(true);
       onSaved?.();
       setTimeout(() => setSaved(false), 3000);
-    } catch {
-      // silently fail
+    } catch (err) {
+      toast(friendlyError(err));
     } finally {
       setSaving(false);
     }
@@ -97,7 +100,7 @@ export default function EmailComposer({
           .concat({
             id: msgId(),
             role: "assistant",
-            text: `Generation failed. ${err instanceof Error ? err.message : "Please try again."}`,
+            text: `Generation failed. ${friendlyError(err)}`,
           })
       );
     } finally {

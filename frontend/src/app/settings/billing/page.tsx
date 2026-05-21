@@ -13,6 +13,8 @@ import {
   TierInfo,
   Subscription,
 } from "@/lib/api";
+import { friendlyError } from "@/lib/errors";
+import { useToast } from "@/components/Toast";
 
 const TIER_ORDER = ["free", "classic", "pro"];
 
@@ -42,6 +44,7 @@ const TIER_COLORS: Record<string, { bg: string; border: string; badge: string; b
 
 export default function BillingPage() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const searchParams = useSearchParams();
   const [tiers, setTiers] = useState<Record<string, TierInfo> | null>(null);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
@@ -72,7 +75,7 @@ export default function BillingPage() {
         return getTiers(userRegion);
       })
       .then((t) => setTiers(t))
-      .catch(() => {})
+      .catch((err: unknown) => toast(friendlyError(err)))
       .finally(() => setLoading(false));
   }, []);
 
@@ -83,7 +86,7 @@ export default function BillingPage() {
       const { checkout_url } = await createCheckout(tier);
       window.location.href = checkout_url;
     } catch (err) {
-      setMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to start checkout" });
+      setMessage({ type: "error", text: friendlyError(err) });
       setCheckoutLoading(null);
     }
   }
@@ -95,7 +98,7 @@ export default function BillingPage() {
       const { portal_url } = await createPortalSession();
       window.location.href = portal_url;
     } catch (err) {
-      setMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to open billing portal" });
+      setMessage({ type: "error", text: friendlyError(err) });
       setPortalLoading(false);
     }
   }

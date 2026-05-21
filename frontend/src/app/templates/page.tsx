@@ -12,6 +12,8 @@ import {
   Template,
   UploadResponse,
 } from "@/lib/api";
+import { useToast } from "@/components/Toast";
+import { friendlyError } from "@/lib/errors";
 
 interface ChatMessage {
   id: string;
@@ -51,11 +53,13 @@ export default function TemplatesPage() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const { toast } = useToast();
+
   function loadTemplates(filter?: string) {
     setLoading(true);
     getTemplates(filter || activeFilter)
       .then(setTemplates)
-      .catch(() => {})
+      .catch((err: unknown) => toast(friendlyError(err)))
       .finally(() => setLoading(false));
   }
 
@@ -95,7 +99,7 @@ export default function TemplatesPage() {
         prev.filter((m) => m.text !== "Parsing document...").concat({
           id: Date.now().toString(),
           role: "assistant",
-          text: `Sorry, I couldn't parse that file. ${err instanceof Error ? err.message : "Please try a different format."}`,
+          text: `Sorry, I couldn't parse that file. ${friendlyError(err)}`,
         })
       );
     }
@@ -147,7 +151,7 @@ export default function TemplatesPage() {
         prev.filter((m) => m.text !== "Generating template with AI...").concat({
           id: Date.now().toString(),
           role: "assistant",
-          text: `Template generation failed. ${err instanceof Error ? err.message : "Please try again."}`,
+          text: `Template generation failed. ${friendlyError(err)}`,
         })
       );
     } finally {
@@ -169,7 +173,7 @@ export default function TemplatesPage() {
     } catch (err) {
       addMessage({
         role: "assistant",
-        text: `Failed to save template. ${err instanceof Error ? err.message : "Please try again."}`,
+        text: `Failed to save template. ${friendlyError(err)}`,
       });
     } finally {
       setSaving(false);
