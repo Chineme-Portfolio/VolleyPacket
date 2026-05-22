@@ -129,8 +129,9 @@ export default function JobDetailPage() {
 
   const isTerminal = job.status === "cancelled" || job.status === "failed";
   const jobMode = job.job_mode || "dynamic_pdf";
-  const canAllocate = !job.is_allocated && !isTerminal && jobMode === "dynamic_pdf";
-  const canStartPdfs = job.is_allocated && job.template_id && job.tasks?.pdfs?.status !== "running";
+  const hasExamDate = job.columns?.includes("ExamDate");
+  const canAllocate = hasExamDate && !job.is_allocated && !isTerminal;
+  const canStartPdfs = job.template_id && job.tasks?.pdfs?.status !== "running";
   const pdfsComplete = job.tasks?.pdfs?.status === "complete";
   const emailsComplete = job.tasks?.emails?.status === "complete";
   const hasRunning = Object.values(job.tasks || {}).some((t) => t.status === "running");
@@ -154,7 +155,7 @@ export default function JobDetailPage() {
             </span>
           </div>
           <p className="text-sm text-gray-500 mt-1">
-            {job.candidate_count} candidates · {job.is_allocated ? "Allocated" : "Not allocated"}
+            {job.candidate_count} recipients{job.is_allocated ? " · Allocated" : ""}
           </p>
           <p className="text-xs text-gray-400 mt-0.5 truncate">ID: {job.job_id}</p>
         </div>
@@ -265,8 +266,8 @@ export default function JobDetailPage() {
               canStart = !isRunning && !isComplete;
             }
           }
-          if (taskKey === "sms") canStart = job.is_allocated && !isRunning && !isComplete;
-          if (taskKey === "photos") canStart = job.is_allocated && !isRunning && !isComplete;
+          if (taskKey === "sms") canStart = !isRunning && !isComplete;
+          if (taskKey === "photos") canStart = !isRunning && !isComplete;
 
           return (
             <div key={taskKey} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">

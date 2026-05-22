@@ -326,13 +326,13 @@ def generate_pdfs(job_id: str, user: UserRow = Depends(get_current_user)):
     job = _get_job_or_404(job_id, user)
     if not job.template:
         raise HTTPException(status_code=400, detail="No template attached — attach one first")
-    if not job.is_allocated:
-        raise HTTPException(status_code=400, detail="Data not allocated — allocate first")
 
     if job.tasks["pdfs"].status == "running":
         raise HTTPException(status_code=409, detail="PDF generation already running")
 
-    job.validate_emails()
+    # Validate emails if an Email column exists
+    if "Email" in job.columns:
+        job.validate_emails()
 
     start_pdf_generation(job)
     return {"message": "PDF generation started", "total": job.tasks["pdfs"].total}
@@ -370,8 +370,6 @@ def send_emails(job_id: str, user: UserRow = Depends(get_current_user)):
     if job_mode == "dynamic_pdf":
         if not job.template:
             raise HTTPException(status_code=400, detail="No template attached")
-        if not job.is_allocated:
-            raise HTTPException(status_code=400, detail="Data not allocated")
         pdf_task = job.tasks["pdfs"]
         if pdf_task.status != "complete":
             raise HTTPException(status_code=400, detail="Generate PDFs first before sending emails")
@@ -400,8 +398,10 @@ def get_email_status(job_id: str, user: UserRow = Depends(get_current_user)):
 @router.post("/{job_id}/sms/send")
 def send_sms(job_id: str, request: SendSMSRequest = SendSMSRequest(), user: UserRow = Depends(get_current_user)):
     job = _get_job_or_404(job_id, user)
-    if not job.is_allocated:
-        raise HTTPException(status_code=400, detail="Data not allocated")
+    # SMS needs a phone number column
+    phone_cols = [c for c in job.columns if c.lower() in ("phone", "phonenumber", "phone_number", "mobile", "tel")]
+    if not phone_cols:
+        raise HTTPException(status_code=400, detail="No phone number column found in data (expected Phone, PhoneNumber, or Mobile)")
 
     if job.tasks["sms"].status == "running":
         raise HTTPException(status_code=409, detail="SMS send already running")
