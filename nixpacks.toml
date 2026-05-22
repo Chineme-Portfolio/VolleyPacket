@@ -1,4 +1,4 @@
 [phases.setup]
 # WeasyPrint requires Pango, GDK-Pixbuf, and related system libraries
-nixPkgsAppend = ["pango", "gdk-pixbuf", "gobject-introspection", "libffi", "shared-mime-info"]
+nixPkgsAppend = ["pango", "glib", "gdk-pixbuf", "gobject-introspection", "libffi", "shared-mime-info", "harfbuzz", "fontconfig", "freetype"]
 
