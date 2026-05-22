@@ -2,5 +2,3 @@
 # WeasyPrint requires Pango, GDK-Pixbuf, and related system libraries
 nixPkgs = ["pango", "gdk-pixbuf", "gobject-introspection", "libffi", "shared-mime-info"]
 
-[phases.install]
-cmds = ["pip install -r requirements.txt"]
