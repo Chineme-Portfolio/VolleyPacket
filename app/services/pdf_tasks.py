@@ -29,14 +29,24 @@ def run_pdf_generation(job: Job):
                 return
 
             row_dict = row.to_dict()
-            exam_no = str(row_dict.get("ExamNo", f"candidate_{idx}"))
-            output_path = os.path.join(pdf_folder, f"{safe_filename(exam_no)}.pdf")
 
+            # Use first available identifier column for filename, fallback to index
+            file_id = None
+            for col in ["Name", "ExamNo", "Email", "ID", "Id", "id"]:
+                if col in row_dict and row_dict[col]:
+                    file_id = str(row_dict[col])
+                    break
+            if not file_id:
+                file_id = f"recipient_{idx + 1}"
+            output_path = os.path.join(pdf_folder, f"{safe_filename(file_id)}.pdf")
+
+            # Check for photo URL in any photo-related column
             photo_path = None
-            if job.template and job.template.show_photo:
-                photo_url = row_dict.get("PhotoLink", "")
-                if photo_url:
-                    photo_path = download_photo(photo_url, temp_folder)
+            for col in ["PhotoLink", "PhotoURL", "Photo", "photo_url", "photo"]:
+                photo_url = row_dict.get(col, "")
+                if photo_url and str(photo_url).startswith("http"):
+                    photo_path = download_photo(str(photo_url), temp_folder)
+                    break
 
             render_pdf(job.template, row_dict, output_path, photo_path=photo_path)
 

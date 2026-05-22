@@ -41,7 +41,7 @@ export default function TemplatesPage() {
     {
       id: "welcome",
       role: "assistant",
-      text: "Hi! I can help you create a professional exam invitation template. You can:\n\n• **Describe** the template you want (company name, colors, style)\n• **Upload** an existing document (PDF, DOCX, HTML) and I'll convert it\n• **Upload a logo** to include in the header\n\nWhat would you like to create?",
+      text: "Hi! I can help you create a professional template. You can:\n\n• **Describe** the template you want (organization name, colors, style)\n• **Upload** an existing document (PDF, DOCX, HTML) and I'll convert it\n\nTell me what columns your data has (e.g. Name, Email, Score) and I'll create a template with those placeholders.",
     },
   ]);
   const [input, setInput] = useState("");
@@ -186,7 +186,7 @@ export default function TemplatesPage() {
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6 sm:mb-8">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Templates</h1>
-          <p className="text-gray-500 mt-1 text-sm">Manage and create exam invitation templates.</p>
+          <p className="text-gray-500 mt-1 text-sm">Manage and create document templates.</p>
         </div>
         <Link
           href="/dashboard"

@@ -3,78 +3,18 @@ from typing import Optional
 import uuid
 
 
-# --- TEMPLATE MODELS ---
-
-class ThemeConfig(BaseModel):
-    primary_color: str = "#08764F"
-    secondary_color: str = "#08AB52"
-    accent_color: str = "#E8F4EC"
-    text_color: str = "#2C2C2C"
-    label_color: str = "#777777"
-
-
-class HeaderConfig(BaseModel):
-    logo_path: Optional[str] = None
-    company_name: str = ""
-    address_lines: list[str] = []
-    contact_lines: list[str] = []
-    motto: Optional[str] = None
-    show_number: bool = True
-
-
-class ReferenceConfig(BaseModel):
-    our_ref: Optional[str] = None
-    date: Optional[str] = None
-
-
-class DetailField(BaseModel):
-    label: str
-    value: str
-
-
-class DetailBoxConfig(BaseModel):
-    title: str = "DETAILS"
-    field_rows: list[list[DetailField]] = []
-
-
-class InstructionsConfig(BaseModel):
-    heading: str = "Important Instructions"
-    items: list[str] = []
-
-
-class ComplianceConfig(BaseModel):
-    heading: str = "Compliance Notice"
-    text: str = ""
-
-
-class SignatureConfig(BaseModel):
-    closing: str = "Yours faithfully,"
-    name: str = ""
-    title: str = ""
-
-
-class FooterConfig(BaseModel):
-    text: str = ""
-    credit: Optional[str] = None
-
+# --- TEMPLATE MODEL ---
 
 class TemplateConfig(BaseModel):
+    """
+    A template is an HTML/CSS document with {placeholder} merge fields.
+    The AI generates the full HTML; WeasyPrint renders it to PDF.
+    """
     id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
     name: str = "Untitled Template"
     description: str = ""
-    theme: ThemeConfig = ThemeConfig()
-    header: HeaderConfig = HeaderConfig()
-    reference: ReferenceConfig = ReferenceConfig()
-    subject: str = ""
-    salutation: str = "Dear {Name},"
-    show_photo: bool = True
-    body_paragraphs: list[str] = []
-    detail_box: Optional[DetailBoxConfig] = None
-    notice: Optional[str] = None
-    instructions: Optional[InstructionsConfig] = None
-    compliance: Optional[ComplianceConfig] = None
-    signature: SignatureConfig = SignatureConfig()
-    footer: FooterConfig = FooterConfig()
+    html_content: str = ""  # Full HTML/CSS template with {Placeholder} merge fields
+    placeholders: list[str] = []  # List of placeholder names used in the HTML
 
 
 # --- UPLOAD MODELS ---
@@ -89,6 +29,7 @@ class UploadResponse(BaseModel):
 class GenerateTemplateRequest(BaseModel):
     parsed_content: dict
     instructions: Optional[str] = None
+    columns: Optional[list[str]] = None  # CSV column names to use as placeholders
 
 
 class SaveTemplateRequest(BaseModel):

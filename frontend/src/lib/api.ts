@@ -103,12 +103,13 @@ export async function uploadDocument(file: File): Promise<UploadResponse> {
 
 export async function generateTemplate(
   parsedContent: Record<string, unknown>,
-  instructions?: string
+  instructions?: string,
+  columns?: string[],
 ): Promise<Record<string, unknown>> {
   return fetchJSON("/generate-template", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ parsed_content: parsedContent, instructions }),
+    body: JSON.stringify({ parsed_content: parsedContent, instructions, columns }),
   });
 }
 
@@ -130,8 +131,9 @@ export async function previewGeneratedTemplate(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(template),
   });
-  const blob = await res.blob();
-  return URL.createObjectURL(blob);
+  // Backend returns HTML now (not PDF), so create a data URL for iframe
+  const html = await res.text();
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }
 
 export interface UploadResponse {

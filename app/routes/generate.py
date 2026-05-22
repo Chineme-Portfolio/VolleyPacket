@@ -1,11 +1,11 @@
 import os
 
 from fastapi import APIRouter, HTTPException, Depends
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse
 
 from app.models import GenerateTemplateRequest, TemplateConfig
 from app.services.ai_generator import generate_template_from_content
-from app.services.template_renderer import render_preview
+from app.services.template_renderer import render_preview, render_html_preview
 from app.services.storage import store
 from app.services.billing import check_ai_limit, increment_ai_usage
 from app.dependencies import get_current_user
@@ -29,6 +29,7 @@ def generate_template(request: GenerateTemplateRequest, user: UserRow = Depends(
         template = generate_template_from_content(
             request.parsed_content,
             request.instructions,
+            request.columns,
         )
         increment_ai_usage(user.id)
         return template.model_dump()
@@ -38,8 +39,6 @@ def generate_template(request: GenerateTemplateRequest, user: UserRow = Depends(
 
 @router.post("-template/preview")
 def preview_generated_template(template: TemplateConfig, user: UserRow = Depends(get_current_user)):
-    os.makedirs(config.OUTPUT_FOLDER, exist_ok=True)
-    preview_path = os.path.join(config.OUTPUT_FOLDER, f"preview_{template.id}.pdf")
-    render_preview(template, preview_path)
-    store.save_local_file(preview_path)
-    return store.serve_inline(f"output/preview_{template.id}.pdf", media_type="application/pdf")
+    """Return an HTML preview with placeholders highlighted."""
+    html = render_html_preview(template)
+    return HTMLResponse(content=html, status_code=200)

@@ -201,7 +201,7 @@ export default function JobDetailPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-blue-50 border border-blue-100 rounded-2xl px-4 sm:px-5 py-4 mb-6">
           <div>
             <p className="text-sm font-medium text-blue-900">Data needs allocation</p>
-            <p className="text-xs text-blue-700 mt-0.5">Assign exam halls and time slots to candidates before generating PDFs.</p>
+            <p className="text-xs text-blue-700 mt-0.5">Assign combinations and time slots to recipients before generating PDFs.</p>
           </div>
           <button
             onClick={() => doAction("allocate", () => allocateJob(jobId))}

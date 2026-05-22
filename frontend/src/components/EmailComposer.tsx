@@ -183,7 +183,7 @@ export default function EmailComposer({
               type="text"
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
-              placeholder="e.g. Invitation for {Name} — {ExamNo}"
+              placeholder="e.g. Your document for {Name}"
               className="w-full px-3 py-2 rounded-xl border border-gray-200 bg-white text-sm text-gray-800 placeholder-gray-400 outline-none focus:ring-2 focus:ring-green-700/20 focus:border-green-300"
             />
           </div>

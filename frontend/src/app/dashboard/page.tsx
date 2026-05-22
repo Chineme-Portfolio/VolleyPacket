@@ -53,7 +53,7 @@ export default function Dashboard() {
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6 sm:mb-8">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-gray-500 mt-1 text-sm">Generate, send, and track exam invitations with ease.</p>
+          <p className="text-gray-500 mt-1 text-sm">Generate, send, and track documents with ease.</p>
         </div>
         <div className="flex items-center gap-3">
           <button

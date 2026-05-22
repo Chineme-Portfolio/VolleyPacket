@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from app.models import TemplateConfig, SaveTemplateRequest
-from app.services.template_renderer import render_preview
+from app.services.template_renderer import render_preview, render_html_preview
 from app.services.storage import store
 from app.database import get_session, UserRow, TemplateRow
 from app.dependencies import get_current_user
@@ -173,7 +173,9 @@ def get_template(template_id: str, user: UserRow = Depends(get_current_user)):
 
 @router.get("/{template_id}/preview")
 def preview_template(template_id: str, user: UserRow = Depends(get_current_user)):
-    """Generate a PDF preview of a template."""
+    """Return an HTML preview of a template with placeholders highlighted."""
+    from fastapi.responses import HTMLResponse
+
     session = get_session()
     try:
         row = session.get(TemplateRow, template_id)
@@ -184,11 +186,8 @@ def preview_template(template_id: str, user: UserRow = Depends(get_current_user)
     finally:
         session.close()
 
-    os.makedirs(config.OUTPUT_FOLDER, exist_ok=True)
-    preview_path = os.path.join(config.OUTPUT_FOLDER, f"preview_{template_id}.pdf")
-    render_preview(template, preview_path)
-    store.save_local_file(preview_path)
-    return store.serve_inline(f"output/preview_{template_id}.pdf", media_type="application/pdf")
+    html = render_html_preview(template)
+    return HTMLResponse(content=html, status_code=200)
 
 
 @router.post("/save")

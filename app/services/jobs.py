@@ -260,10 +260,24 @@ class Job:
 
         job.template = None
         if job.template_id:
-            tpl_path = os.path.join(config.TEMPLATE_FOLDER, f"{job.template_id}.json")
-            if os.path.isfile(tpl_path):
-                with open(tpl_path, "r") as f:
-                    job.template = TemplateConfig(**json.load(f))
+            # Try database first, then fall back to file
+            try:
+                from app.database import get_session, TemplateRow
+                session = get_session()
+                try:
+                    row = session.get(TemplateRow, job.template_id)
+                    if row:
+                        job.template = TemplateConfig(**json.loads(row.config_json))
+                finally:
+                    session.close()
+            except Exception:
+                pass
+
+            if not job.template:
+                tpl_path = os.path.join(config.TEMPLATE_FOLDER, f"{job.template_id}.json")
+                if os.path.isfile(tpl_path):
+                    with open(tpl_path, "r") as f:
+                        job.template = TemplateConfig(**json.load(f))
 
         for task in job.tasks.values():
             if task.status == "running":
