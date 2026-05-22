@@ -21,6 +21,32 @@ interface ChatMsg {
   body?: string;
 }
 
+const EMAIL_CHAT_KEY = "vp_email_chat";
+
+const WELCOME_EMAIL_MSG: ChatMsg = {
+  id: "welcome",
+  role: "assistant",
+  text: "Describe the email you want to send and I'll generate the subject and body for you. I'll use your spreadsheet columns as placeholders.\n\nExample: \"A formal invitation to a training workshop on March 15th\"",
+};
+
+function loadEmailChat(jobId: string): ChatMsg[] {
+  if (typeof window === "undefined") return [WELCOME_EMAIL_MSG];
+  try {
+    const raw = localStorage.getItem(`${EMAIL_CHAT_KEY}_${jobId}`);
+    if (raw) {
+      const parsed = JSON.parse(raw) as ChatMsg[];
+      return parsed.filter((m) => m.role !== "system");
+    }
+  } catch {}
+  return [WELCOME_EMAIL_MSG];
+}
+
+function saveEmailChat(jobId: string, messages: ChatMsg[]) {
+  try {
+    localStorage.setItem(`${EMAIL_CHAT_KEY}_${jobId}`, JSON.stringify(messages));
+  } catch {}
+}
+
 export default function EmailComposer({
   jobId,
   columns,
@@ -36,14 +62,8 @@ export default function EmailComposer({
   const [showPreview, setShowPreview] = useState(false);
   const [activeTab, setActiveTab] = useState<"editor" | "ai">("editor");
 
-  // AI chat state
-  const [messages, setMessages] = useState<ChatMsg[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      text: "Describe the email you want to send and I'll generate the subject and body for you. I'll use your spreadsheet columns as placeholders.\n\nExample: \"A formal invitation to a training workshop on March 15th\"",
-    },
-  ]);
+  // AI chat state — persisted per job
+  const [messages, setMessages] = useState<ChatMsg[]>(() => loadEmailChat(jobId));
   const [chatInput, setChatInput] = useState("");
   const [generating, setGenerating] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -51,6 +71,11 @@ export default function EmailComposer({
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Persist email chat to localStorage
+  useEffect(() => {
+    saveEmailChat(jobId, messages);
+  }, [messages, jobId]);
 
   async function handleSave() {
     setSaving(true);
@@ -244,6 +269,18 @@ export default function EmailComposer({
       {/* AI tab */}
       {activeTab === "ai" && (
         <div className="flex flex-col h-[320px] sm:h-[420px]">
+          {/* Chat notice */}
+          <div className="flex items-center justify-between px-5 py-1.5 bg-amber-50 border-b border-amber-100">
+            <p className="text-[11px] text-amber-600">Chat history is saved locally and clears when you log out.</p>
+            {messages.length > 1 && (
+              <button
+                onClick={() => setMessages([WELCOME_EMAIL_MSG])}
+                className="text-[11px] text-amber-500 hover:text-amber-700 transition-colors"
+              >
+                Clear
+              </button>
+            )}
+          </div>
           {/* Chat messages */}
           <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 space-y-3 bg-gray-50/50">
             {messages.map((msg) => (

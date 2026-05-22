@@ -125,6 +125,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   function logout() {
     localStorage.removeItem("vp_token");
+    // Clear persisted chat histories
+    localStorage.removeItem("vp_template_chat");
+    Object.keys(localStorage).forEach((key) => {
+      if (key.startsWith("vp_email_chat_")) localStorage.removeItem(key);
+    });
     setToken(null);
     setUser(null);
     router.push("/login");

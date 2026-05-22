@@ -31,29 +31,59 @@ const FILTERS = [
   { key: "system", label: "VolleyPacket" },
 ];
 
+const WELCOME_MSG: ChatMessage = {
+  id: "welcome",
+  role: "assistant",
+  text: "Hi! I can help you create a professional template. You can:\n\n• **Describe** the template you want (organization name, colors, style)\n• **Upload** an existing document (PDF, DOCX, HTML) and I'll convert it\n\nTell me what columns your data has (e.g. Name, Email, Score) and I'll create a template with those placeholders.",
+};
+
+const CHAT_STORAGE_KEY = "vp_template_chat";
+
+function loadChatFromStorage(): ChatMessage[] {
+  if (typeof window === "undefined") return [WELCOME_MSG];
+  try {
+    const raw = localStorage.getItem(CHAT_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as ChatMessage[];
+      // Filter out stale system messages (spinners)
+      return parsed.filter((m) => m.role !== "system");
+    }
+  } catch {}
+  return [WELCOME_MSG];
+}
+
+function saveChatToStorage(messages: ChatMessage[]) {
+  try {
+    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages));
+  } catch {}
+}
+
 export default function TemplatesPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState("all");
 
   // AI builder state
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      text: "Hi! I can help you create a professional template. You can:\n\n• **Describe** the template you want (organization name, colors, style)\n• **Upload** an existing document (PDF, DOCX, HTML) and I'll convert it\n\nTell me what columns your data has (e.g. Name, Email, Score) and I'll create a template with those placeholders.",
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => loadChatFromStorage());
   const [input, setInput] = useState("");
   const [generating, setGenerating] = useState(false);
   const [uploadedDoc, setUploadedDoc] = useState<UploadResponse | null>(null);
   const [generatedTemplate, setGeneratedTemplate] = useState<Record<string, unknown> | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Editable template name/description
+  const [editName, setEditName] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { toast } = useToast();
+
+  // Persist chat to localStorage
+  useEffect(() => {
+    saveChatToStorage(messages);
+  }, [messages]);
 
   function loadTemplates(filter?: string) {
     setLoading(true);
@@ -128,6 +158,8 @@ export default function TemplatesPage() {
       const instructions = uploadedDoc ? text : undefined;
       const template = await generateTemplate(parsedContent, instructions);
       setGeneratedTemplate(template);
+      setEditName((template as { name?: string }).name || "Untitled Template");
+      setEditDesc((template as { description?: string }).description || "");
 
       let previewUrl: string | undefined;
       try {
@@ -140,7 +172,7 @@ export default function TemplatesPage() {
         prev.filter((m) => m.text !== "Generating template with AI...").concat({
           id: Date.now().toString(),
           role: "assistant",
-          text: `Here's your template: **${(template as { name?: string }).name || "Generated Template"}**\n\nYou can:\n• Type **"save"** to add it to your library\n• Describe changes and I'll regenerate\n• Upload a different document to start over`,
+          text: `Here's your template: **${(template as { name?: string }).name || "Generated Template"}**\n\nYou can rename it and edit the description below, then save. Or describe changes and I'll regenerate.`,
           previewUrl,
           templateData: template,
         })
@@ -163,12 +195,15 @@ export default function TemplatesPage() {
     if (!generatedTemplate || saving) return;
     setSaving(true);
     try {
-      await saveTemplate(generatedTemplate);
+      const toSave = { ...generatedTemplate, name: editName || generatedTemplate.name, description: editDesc || generatedTemplate.description };
+      await saveTemplate(toSave);
       addMessage({
         role: "assistant",
-        text: `Template saved! It's now available in your library. You can preview it or use it in a new job.`,
+        text: `Template **${editName || "Untitled"}** saved! It's now in your library.`,
       });
       setGeneratedTemplate(null);
+      setEditName("");
+      setEditDesc("");
       loadTemplates();
     } catch (err) {
       addMessage({
@@ -178,6 +213,14 @@ export default function TemplatesPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleClearChat() {
+    setMessages([WELCOME_MSG]);
+    setGeneratedTemplate(null);
+    setEditName("");
+    setEditDesc("");
+    setUploadedDoc(null);
   }
 
   return (
@@ -245,19 +288,35 @@ export default function TemplatesPage() {
       {/* AI Template Builder */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         {/* Builder header */}
-        <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100">
-          <div className="w-9 h-9 rounded-xl bg-green-800 flex items-center justify-center">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-              <path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4Z" />
-              <path d="M6 10v2a6 6 0 0 0 12 0v-2" />
-              <path d="M12 18v4" />
-              <path d="M8 22h8" />
-            </svg>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-green-800 flex items-center justify-center">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                <path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4Z" />
+                <path d="M6 10v2a6 6 0 0 0 12 0v-2" />
+                <path d="M12 18v4" />
+                <path d="M8 22h8" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">AI Template Builder</h2>
+              <p className="text-xs text-gray-500">Describe your template or upload a document to get started</p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900">AI Template Builder</h2>
-            <p className="text-xs text-gray-500">Describe your template or upload a document to get started</p>
-          </div>
+          {messages.length > 1 && (
+            <button
+              onClick={handleClearChat}
+              className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+              title="Clear chat"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+
+        {/* Chat notice */}
+        <div className="px-6 py-1.5 bg-amber-50 border-b border-amber-100">
+          <p className="text-[11px] text-amber-600">Chat history is saved locally and clears when you log out.</p>
         </div>
 
         {/* Chat area */}
@@ -280,30 +339,36 @@ export default function TemplatesPage() {
                   <ChatMessageText text={msg.text} />
                   {msg.previewUrl && (
                     <div className="mt-3 rounded-xl overflow-hidden border border-gray-200">
-                      <iframe src={msg.previewUrl} className="w-full h-64" title="Template preview" />
+                      <iframe src={msg.previewUrl} className="w-full h-64" title="Template preview" sandbox="allow-same-origin" />
                     </div>
                   )}
                   {msg.templateData && (
-                    <div className="flex gap-2 mt-3">
+                    <div className="mt-3 space-y-2">
+                      {/* Editable name/description */}
+                      <input
+                        type="text"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        placeholder="Template name"
+                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-gray-200 bg-gray-50 text-gray-800 outline-none focus:ring-1 focus:ring-green-700/30"
+                      />
+                      <input
+                        type="text"
+                        value={editDesc}
+                        onChange={(e) => setEditDesc(e.target.value)}
+                        placeholder="Description (optional)"
+                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-gray-200 bg-gray-50 text-gray-800 outline-none focus:ring-1 focus:ring-green-700/30"
+                      />
                       <button
                         onClick={() => {
                           setGeneratedTemplate(msg.templateData!);
                           handleSaveTemplate();
                         }}
-                        className="px-3 py-1.5 text-xs font-medium rounded-lg bg-green-700 text-white hover:bg-green-800 transition-colors"
+                        disabled={saving}
+                        className="px-3 py-1.5 text-xs font-medium rounded-lg bg-green-700 text-white hover:bg-green-800 transition-colors disabled:opacity-50"
                       >
-                        Save Template
+                        {saving ? "Saving..." : "Save Template"}
                       </button>
-                      {msg.previewUrl && (
-                        <a
-                          href={msg.previewUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
-                        >
-                          Open Preview
-                        </a>
-                      )}
                     </div>
                   )}
                 </div>

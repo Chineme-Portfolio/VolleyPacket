@@ -29,6 +29,10 @@ export async function fetchAPI(path: string, options?: RequestInit) {
     // Auto-logout on 401 (expired/invalid token)
     if (res.status === 401 && typeof window !== "undefined") {
       localStorage.removeItem("vp_token");
+      localStorage.removeItem("vp_template_chat");
+      Object.keys(localStorage).forEach((key) => {
+        if (key.startsWith("vp_email_chat_")) localStorage.removeItem(key);
+      });
       window.location.href = "/login";
       throw new Error("Your session has expired. Please sign in again.");
     }

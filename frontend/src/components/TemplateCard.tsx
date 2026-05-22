@@ -1,12 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Template, updateTemplateVisibility, deleteTemplate } from "@/lib/api";
-import PdfPreviewModal from "./PdfPreviewModal";
+import { Template, updateTemplateVisibility, deleteTemplate, fetchAPI } from "@/lib/api";
 import { friendlyError } from "@/lib/errors";
 import { useToast } from "@/components/Toast";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 interface TemplateCardProps {
   template: Template;
@@ -16,12 +13,32 @@ interface TemplateCardProps {
 export default function TemplateCard({ template, onUpdate }: TemplateCardProps) {
   const { toast } = useToast();
   const [showPreview, setShowPreview] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
 
   const isSystem = !template.owner_id;
   const isOwn = template.is_own;
+
+  async function handlePreview() {
+    setShowPreview(true);
+    if (previewUrl) return; // already loaded
+
+    setLoadingPreview(true);
+    try {
+      const res = await fetchAPI(`/templates/${template.id}/preview`);
+      const html = await res.text();
+      const blob = new Blob([html], { type: "text/html" });
+      setPreviewUrl(URL.createObjectURL(blob));
+    } catch (err) {
+      toast(friendlyError(err));
+      setShowPreview(false);
+    } finally {
+      setLoadingPreview(false);
+    }
+  }
 
   async function handleToggleVisibility() {
     setToggling(true);
@@ -136,7 +153,7 @@ export default function TemplateCard({ template, onUpdate }: TemplateCardProps) 
           )}
           <div className="flex items-center gap-2 mt-3">
             <button
-              onClick={() => setShowPreview(true)}
+              onClick={handlePreview}
               className="flex-1 text-center text-xs font-medium py-2 rounded-xl bg-green-50 text-green-800 hover:bg-green-100 transition-colors"
             >
               Preview
@@ -148,12 +165,35 @@ export default function TemplateCard({ template, onUpdate }: TemplateCardProps) 
         </div>
       </div>
 
+      {/* Preview modal */}
       {showPreview && (
-        <PdfPreviewModal
-          url={`${API_BASE}/templates/${template.id}/preview`}
-          title={template.name}
-          onClose={() => setShowPreview(false)}
-        />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setShowPreview(false)}>
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-[90vw] max-w-3xl h-[85vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <h3 className="text-lg font-semibold text-gray-900">{template.name}</h3>
+              <button
+                onClick={() => setShowPreview(false)}
+                className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-gray-100 transition-colors"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="flex-1 bg-gray-100">
+              {loadingPreview ? (
+                <div className="flex items-center justify-center h-full">
+                  <div className="w-8 h-8 border-3 border-green-700 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : previewUrl ? (
+                <iframe src={previewUrl} className="w-full h-full" title={`Preview: ${template.name}`} sandbox="allow-same-origin" />
+              ) : null}
+            </div>
+          </div>
+        </div>
       )}
     </>
   );
