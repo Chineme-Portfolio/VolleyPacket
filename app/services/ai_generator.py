@@ -76,14 +76,15 @@ def generate_template_from_content(
     image_data_uris: list[str] = []
 
     for pc in parsed_contents:
+        # Support both nested (detected_fields.is_image) and flat (is_image) formats
         fields = pc.get("detected_fields", {}) if isinstance(pc.get("detected_fields"), dict) else {}
-        is_image = fields.get("is_image", False)
+        is_image = fields.get("is_image", False) or pc.get("is_image", False)
         image_intent = pc.get("image_intent", "reference")  # "embed" or "reference"
 
         if is_image:
             has_image = True
-            image_data = fields.get("image_data", "")
-            media_type = fields.get("image_media_type", "image/png")
+            image_data = fields.get("image_data", "") or pc.get("image_data", "")
+            media_type = fields.get("image_media_type", "image/png") or pc.get("image_media_type", "image/png")
             content_blocks.append({
                 "type": "image",
                 "source": {
