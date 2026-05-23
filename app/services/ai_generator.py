@@ -3,12 +3,28 @@ AI-powered HTML template generation using Anthropic Claude.
 Generates complete, self-contained HTML/CSS documents for PDF rendering.
 """
 
+import base64
 import json
 import re
 import anthropic
 
 from app.models import TemplateConfig
 from app import config
+
+
+def _detect_media_type_from_b64(b64_data: str, fallback: str = "image/png") -> str:
+    """Detect the real image media type from base64-encoded data."""
+    try:
+        header = base64.b64decode(b64_data[:32])
+        if header[:2] == b'\xff\xd8':
+            return "image/jpeg"
+        if header[:8] == b'\x89PNG\r\n\x1a\n':
+            return "image/png"
+        if header[:4] == b'RIFF' and header[8:12] == b'WEBP':
+            return "image/webp"
+    except Exception:
+        pass
+    return fallback
 
 
 SYSTEM_PROMPT = """You are a professional document designer for VolleyPacket, a platform that generates personalized PDF letters and invitations.
@@ -84,7 +100,9 @@ def generate_template_from_content(
         if is_image:
             has_image = True
             image_data = fields.get("image_data", "") or pc.get("image_data", "")
-            media_type = fields.get("image_media_type", "image/png") or pc.get("image_media_type", "image/png")
+            declared_type = fields.get("image_media_type", "") or pc.get("image_media_type", "image/png")
+            # Always verify from actual bytes — file extension / frontend can be wrong
+            media_type = _detect_media_type_from_b64(image_data, declared_type)
             content_blocks.append({
                 "type": "image",
                 "source": {
