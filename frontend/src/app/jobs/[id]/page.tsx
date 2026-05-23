@@ -61,8 +61,6 @@ export default function JobDetailPage() {
   const [error, setError] = useState("");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [emailConfigured, setEmailConfigured] = useState<boolean | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pollActiveRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadJob = useCallback(async () => {
@@ -78,57 +76,36 @@ export default function JobDetailPage() {
     }
   }, [jobId]);
 
-  // Polling: start/stop based on whether any task is running
-  useEffect(() => {
-    if (!job) return;
-    const hasRunning = Object.values(job.tasks || {}).some((t) => t.status === "running");
-
-    if (hasRunning && !pollActiveRef.current) {
-      pollActiveRef.current = true;
-      pollRef.current = setInterval(async () => {
-        try {
-          const fresh = await getJob(jobId);
-          setJob(fresh);
-          const stillRunning = Object.values(fresh.tasks || {}).some((t) => t.status === "running");
-          if (!stillRunning) {
-            clearInterval(pollRef.current!);
-            pollRef.current = null;
-            pollActiveRef.current = false;
-          }
-        } catch { /* ignore poll errors */ }
-      }, 2000);
-    } else if (!hasRunning && pollActiveRef.current) {
-      clearInterval(pollRef.current!);
-      pollRef.current = null;
-      pollActiveRef.current = false;
-    }
-  }, [job, jobId]);
-
+  // Initial load
   useEffect(() => {
     loadJob();
-    // Check email provider status
     getEmailProviderStatus()
       .then((status) => setEmailConfigured(status.is_configured))
       .catch(() => setEmailConfigured(false));
-    return () => {
-      if (pollRef.current) {
-        clearInterval(pollRef.current);
-        pollRef.current = null;
-        pollActiveRef.current = false;
-      }
-    };
   }, [loadJob]);
+
+  // Derive polling flag from job state
+  const shouldPoll = !!job && Object.values(job.tasks || {}).some((t) => t.status === "running");
+
+  // Polling: starts/stops based on shouldPoll, doesn't re-create on every job update
+  useEffect(() => {
+    if (!shouldPoll) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const fresh = await getJob(jobId);
+        setJob(fresh);
+      } catch { /* ignore poll errors */ }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [shouldPoll, jobId]);
 
   async function doAction(key: string, fn: () => Promise<unknown>) {
     setActionLoading(key);
     setError("");
     try {
       await fn();
-      // After starting a task, the backend thread may not have set status
-      // to "running" yet. Wait briefly then reload to catch the transition.
-      if (key.startsWith("start-")) {
-        await new Promise((r) => setTimeout(r, 500));
-      }
       await loadJob();
     } catch (err) {
       setError(friendlyError(err));
