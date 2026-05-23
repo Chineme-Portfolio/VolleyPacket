@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
-import { LogoIcon } from "@/components/Logo";
+import { LogoIcon, LogoFull } from "@/components/Logo";
 import { friendlyError } from "@/lib/errors";
 import GoogleSignIn from "@/components/GoogleSignIn";
 
@@ -44,11 +44,7 @@ export default function SignupPage() {
       {/* Left — branding */}
       <div className="hidden lg:flex lg:w-1/2 bg-green-800 text-white flex-col justify-center px-16">
         <div className="flex items-center gap-3 mb-8">
-          <LogoIcon size={48} />
-          <div className="flex items-baseline">
-            <span className="text-3xl font-extrabold text-white">Volley</span>
-            <span className="text-3xl font-extrabold text-green-300">Packet</span>
-          </div>
+          <LogoFull height={40} className="brightness-0 invert" />
         </div>
         <h2 className="text-4xl font-bold leading-tight mb-4">
           Get started<br />in seconds.
@@ -63,11 +59,7 @@ export default function SignupPage() {
         <div className="w-full max-w-md">
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center gap-3 mb-10">
-            <LogoIcon size={40} />
-            <div className="flex items-baseline">
-              <span className="text-2xl font-extrabold text-gray-900">Volley</span>
-              <span className="text-2xl font-extrabold text-green-800">Packet</span>
-            </div>
+            <LogoFull height={32} />
           </div>
 
           <h1 className="text-2xl font-bold text-gray-900 mb-1">Create your account</h1>

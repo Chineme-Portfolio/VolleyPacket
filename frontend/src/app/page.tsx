@@ -3,28 +3,7 @@
 import { useRef, useEffect, useState } from "react";
 import Link from "next/link";
 import { motion, useScroll, useTransform, useInView, useSpring } from "framer-motion";
-import { LogoIcon, LogoFull } from "@/components/Logo";
-
-/* ───────────── Volleyball 3D Component ───────────── */
-function Volleyball3D({ className = "" }: { className?: string }) {
-  return (
-    <div className={`volleyball-scene ${className}`}>
-      <div className="volleyball-ball">
-        {/* Seam lines rendered as pseudo-elements via CSS */}
-        <div className="vb-seam vb-seam-h1" />
-        <div className="vb-seam vb-seam-h2" />
-        <div className="vb-seam vb-seam-v1" />
-        {/* Paper airplane overlay */}
-        <div className="vb-airplane">
-          <svg viewBox="0 0 40 30" width="40" height="30">
-            <polygon points="0,15 36,0 12,12" fill="white" opacity="0.9" />
-            <polygon points="12,12 36,0 16,26" fill="white" opacity="0.7" />
-          </svg>
-        </div>
-      </div>
-    </div>
-  );
-}
+import { LogoIcon, LogoIcon3D, LogoFull, LogoFull3D } from "@/components/Logo";
 
 /* ───────────── Animated counter ───────────── */
 function Counter({ target, suffix = "" }: { target: number; suffix?: string }) {
@@ -216,12 +195,8 @@ export default function LandingPage() {
       {/* ── Navbar ── */}
       <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-white/80 border-b border-gray-100">
         <div className="max-w-7xl mx-auto flex items-center justify-between px-6 h-16">
-          <Link href="/" className="flex items-center gap-2.5">
-            <LogoIcon size={32} />
-            <div className="flex items-baseline">
-              <span className="text-lg font-extrabold text-gray-900">Volley</span>
-              <span className="text-lg font-extrabold text-green-800">Packet</span>
-            </div>
+          <Link href="/" className="flex items-center gap-2">
+            <LogoFull height={28} />
           </Link>
           <div className="hidden md:flex items-center gap-8 text-sm font-medium text-gray-600">
             <a href="#features" className="hover:text-gray-900 transition-colors">Features</a>
@@ -288,7 +263,7 @@ export default function LandingPage() {
             </div>
           </motion.div>
 
-          {/* Right — 3D volleyball */}
+          {/* Right — 3D logo */}
           <motion.div
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -296,7 +271,9 @@ export default function LandingPage() {
             className="flex items-center justify-center"
           >
             <div className="relative">
-              <Volleyball3D className="w-72 h-72 md:w-96 md:h-96" />
+              <div className="logo-spin-z w-72 h-72 md:w-96 md:h-96 flex items-center justify-center">
+                <LogoIcon3D size={320} className="w-56 h-56 md:w-72 md:h-72" />
+              </div>
               {/* Floating badges */}
               <motion.div
                 animate={{ y: [0, -8, 0] }}
@@ -410,11 +387,13 @@ export default function LandingPage() {
           </Reveal>
 
           <div className="grid lg:grid-cols-2 gap-16 items-center">
-            {/* Left — animated volleyball */}
+            {/* Left — animated logo */}
             <Reveal>
               <div className="flex justify-center">
                 <div className="relative">
-                  <Volleyball3D className="w-64 h-64 md:w-80 md:h-80 volleyball-how-it-works" />
+                  <div className="logo-spin-z-slow w-64 h-64 md:w-80 md:h-80 flex items-center justify-center">
+                    <LogoIcon3D size={280} className="w-48 h-48 md:w-64 md:h-64" />
+                  </div>
 
                   {/* Orbiting elements */}
                   <div className="absolute inset-0 animate-orbit">
@@ -570,11 +549,7 @@ export default function LandingPage() {
             {/* Brand */}
             <div className="md:col-span-1">
               <div className="flex items-center gap-2 mb-4">
-                <LogoIcon size={28} />
-                <div className="flex items-baseline">
-                  <span className="text-base font-extrabold text-white">Volley</span>
-                  <span className="text-base font-extrabold text-green-400">Packet</span>
-                </div>
+                <LogoFull height={24} className="brightness-0 invert" />
               </div>
               <p className="text-sm leading-relaxed">
                 The modern batch email and document generation platform.

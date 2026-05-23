@@ -20,80 +20,26 @@ body {
 }
 
 /* ═══════════════════════════════════════
-   3D Volleyball
+   Logo Animations
    ═══════════════════════════════════════ */
 
-.volleyball-scene {
-  perspective: 600px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* Z-axis spin (flat rotation like a wheel) + gentle float */
+.logo-spin-z {
+  animation: logo-z-rotate 12s linear infinite, logo-float 4s ease-in-out infinite;
 }
 
-.volleyball-ball {
-  position: relative;
-  width: 70%;
-  height: 0;
-  padding-bottom: 70%;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #34d399, #065f46 80%);
-  box-shadow:
-    inset -8px -8px 24px rgba(0, 0, 0, 0.25),
-    inset 6px 6px 20px rgba(255, 255, 255, 0.12),
-    0 20px 60px rgba(6, 95, 70, 0.35);
-  animation: vb-spin 12s linear infinite;
-  transform-style: preserve-3d;
+.logo-spin-z-slow {
+  animation: logo-z-rotate 20s linear infinite, logo-float 5s ease-in-out infinite;
 }
 
-@keyframes vb-spin {
-  0%   { transform: rotateY(0deg)   rotateX(5deg); }
-  50%  { transform: rotateY(180deg) rotateX(-5deg); }
-  100% { transform: rotateY(360deg) rotateX(5deg); }
+@keyframes logo-z-rotate {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
-/* Seam lines */
-.vb-seam {
-  position: absolute;
-  inset: 8%;
-  border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.25);
-  pointer-events: none;
-}
-
-.vb-seam-h1 {
-  transform: rotateX(65deg);
-}
-.vb-seam-h2 {
-  transform: rotateX(-65deg);
-}
-.vb-seam-v1 {
-  transform: rotateY(65deg);
-}
-
-/* Paper airplane on ball */
-.vb-airplane {
-  position: absolute;
-  top: 22%;
-  left: 30%;
-  opacity: 0.9;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.15));
-  animation: vb-airplane-float 3s ease-in-out infinite;
-}
-
-@keyframes vb-airplane-float {
-  0%, 100% { transform: translate(0, 0) rotate(0deg); }
-  50%      { transform: translate(3px, -5px) rotate(2deg); }
-}
-
-/* Slow rotation for how-it-works section */
-.volleyball-how-it-works .volleyball-ball {
-  animation: vb-spin-slow 20s linear infinite;
-}
-
-@keyframes vb-spin-slow {
-  0%   { transform: rotateY(0deg)   rotateX(8deg); }
-  50%  { transform: rotateY(180deg) rotateX(-8deg); }
-  100% { transform: rotateY(360deg) rotateX(8deg); }
+@keyframes logo-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-8px); }
 }
 
 /* Orbiting badges */
