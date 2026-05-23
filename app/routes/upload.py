@@ -46,7 +46,20 @@ async def upload_document(file: UploadFile = File(...), user: UserRow = Depends(
     if ext in IMAGE_EXTENSIONS:
         # For images, we don't extract text — the AI will see the image directly
         import base64
-        mime_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+
+        # Detect actual image type from magic bytes (file extension can lie)
+        def _detect_media_type(data: bytes, fallback_ext: str) -> str:
+            if data[:8] == b'\x89PNG\r\n\x1a\n':
+                return "image/png"
+            if data[:2] == b'\xff\xd8':
+                return "image/jpeg"
+            if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+                return "image/webp"
+            ext_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+            return ext_map.get(fallback_ext, "image/png")
+
+        media_type = _detect_media_type(content, ext)
+
         image_b64 = base64.b64encode(content).decode("utf-8")
         return UploadResponse(
             file_id=file_id,
@@ -55,7 +68,7 @@ async def upload_document(file: UploadFile = File(...), user: UserRow = Depends(
             detected_fields={
                 "is_image": True,
                 "image_data": image_b64,
-                "image_media_type": mime_map.get(ext, "image/png"),
+                "image_media_type": media_type,
             },
         )
 
