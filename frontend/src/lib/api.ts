@@ -222,6 +222,32 @@ export function getReportUrl(jobId: string): string {
   return `${API_BASE}/jobs/${jobId}/report`;
 }
 
+/** Download a file from an authenticated endpoint and trigger browser download. */
+export async function downloadFile(url: string, fallbackFilename: string): Promise<void> {
+  const res = await fetch(url, { headers: getAuthHeaders() });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Download failed" }));
+    throw new Error(err.detail || "Download failed");
+  }
+  const blob = await res.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = blobUrl;
+  // Try to get filename from Content-Disposition header
+  const disposition = res.headers.get("content-disposition");
+  if (disposition) {
+    const match = disposition.match(/filename="?([^";\n]+)"?/);
+    if (match) a.download = match[1];
+    else a.download = fallbackFilename;
+  } else {
+    a.download = fallbackFilename;
+  }
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(blobUrl);
+}
+
 export interface LogMeta {
   key: string;
   label: string;

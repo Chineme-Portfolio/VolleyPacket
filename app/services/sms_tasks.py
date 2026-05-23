@@ -79,8 +79,6 @@ def run_sms_send(job: Job, detailed: bool = False):
     task = job.tasks["sms"]
     data = job.data
     task.total = len(data)
-    task.status = "running"
-    task.phase = "sending"
 
     os.makedirs(config.LOG_FOLDER, exist_ok=True)
     log_path = os.path.join(config.LOG_FOLDER, f"sms_run_{job.timestamp}.csv")
@@ -148,5 +146,8 @@ def run_sms_send(job: Job, detailed: bool = False):
 
 
 def start_sms_send(job: Job, detailed: bool = False):
+    job.tasks["sms"].status = "running"
+    job.tasks["sms"].phase = "sending"
+    job.status = "running"
     thread = threading.Thread(target=run_sms_send, args=(job, detailed), daemon=True)
     thread.start()

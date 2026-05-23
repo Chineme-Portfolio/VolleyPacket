@@ -13,8 +13,7 @@ def run_pdf_generation(job: Job):
     task = job.tasks["pdfs"]
     data = job.valid_data if job.valid_data is not None else job.data
     task.total = len(data)
-    task.status = "running"
-    task.phase = "generating"
+    # status/phase already set by start_pdf_generation before thread starts
 
     pdf_folder = job.get_pdf_folder()
     temp_folder = os.path.join(config.OUTPUT_FOLDER, f"temp_{job.job_id}")
@@ -55,7 +54,8 @@ def run_pdf_generation(job: Job):
 
             task.pdfs_generated = idx + 1
             task.progress = idx + 1
-            task.phase = "generating"
+            if not job.paused.get("pdfs", False):
+                task.phase = "generating"
 
         # Zip
         task.phase = "zipping"
@@ -81,5 +81,9 @@ def run_pdf_generation(job: Job):
 
 
 def start_pdf_generation(job: Job):
+    # Set status BEFORE starting thread to avoid race condition with polling
+    job.tasks["pdfs"].status = "running"
+    job.tasks["pdfs"].phase = "generating"
+    job.status = "running"
     thread = threading.Thread(target=run_pdf_generation, args=(job,), daemon=True)
     thread.start()

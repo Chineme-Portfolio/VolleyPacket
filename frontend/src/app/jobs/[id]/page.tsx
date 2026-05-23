@@ -21,6 +21,7 @@ import {
   setJobMode,
   getPdfDownloadUrl,
   getReportUrl,
+  downloadFile,
   Job,
   TaskStatus,
 } from "@/lib/api";
@@ -392,21 +393,23 @@ export default function JobDetailPage() {
                 )}
 
                 {taskKey === "pdfs" && isComplete && (
-                  <a
-                    href={getPdfDownloadUrl(jobId)}
-                    className="flex-1 text-center px-4 py-2 text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded-xl hover:bg-green-100 transition-colors"
+                  <button
+                    onClick={() => doAction("download-pdfs", () => downloadFile(getPdfDownloadUrl(jobId), `pdfs_${jobId}.zip`))}
+                    disabled={actionLoading === "download-pdfs"}
+                    className="flex-1 px-4 py-2 text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded-xl hover:bg-green-100 transition-colors disabled:opacity-50"
                   >
-                    Download ZIP
-                  </a>
+                    {actionLoading === "download-pdfs" ? "Downloading..." : "Download ZIP"}
+                  </button>
                 )}
 
                 {taskKey === "pdfs" && (isRunning || isPaused) && task.progress > 0 && (
-                  <a
-                    href={getPdfDownloadUrl(jobId) + "?partial=true"}
-                    className="flex-1 text-center px-4 py-2 text-sm font-medium text-gray-600 bg-gray-50 border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors"
+                  <button
+                    onClick={() => doAction("download-partial", () => downloadFile(getPdfDownloadUrl(jobId) + "?partial=true", `pdfs_${jobId}_partial.zip`))}
+                    disabled={actionLoading === "download-partial"}
+                    className="flex-1 px-4 py-2 text-sm font-medium text-gray-600 bg-gray-50 border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors disabled:opacity-50"
                   >
-                    Download {task.progress} PDFs so far
-                  </a>
+                    {actionLoading === "download-partial" ? "Downloading..." : `Download ${task.progress} PDFs so far`}
+                  </button>
                 )}
               </div>
             </div>
@@ -431,12 +434,13 @@ export default function JobDetailPage() {
                 <p className="text-xs text-gray-500">Excel report with sent, missing, bad emails, and failed rows</p>
               </div>
             </div>
-            <a
-              href={getReportUrl(jobId)}
-              className="px-5 py-2 text-sm font-medium text-white bg-green-800 rounded-xl hover:bg-green-900 transition-colors text-center flex-shrink-0"
+            <button
+              onClick={() => doAction("download-report", () => downloadFile(getReportUrl(jobId), `report_${jobId}.xlsx`))}
+              disabled={actionLoading === "download-report"}
+              className="px-5 py-2 text-sm font-medium text-white bg-green-800 rounded-xl hover:bg-green-900 transition-colors text-center flex-shrink-0 disabled:opacity-50"
             >
-              Download Report
-            </a>
+              {actionLoading === "download-report" ? "Downloading..." : "Download Report"}
+            </button>
           </div>
         </div>
       )}

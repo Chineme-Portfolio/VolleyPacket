@@ -44,8 +44,7 @@ def run_email_send(job: Job, provider: EmailProvider, from_name: str, from_email
     task = job.tasks["emails"]
     data = job.valid_data if job.valid_data is not None else job.data
     task.total = len(data)
-    task.status = "running"
-    task.phase = "sending"
+    # status/phase already set by start_email_send before thread starts
 
     job_mode = getattr(job, "job_mode", "dynamic_pdf")
     pdf_folder = job.get_pdf_folder() if job_mode == "dynamic_pdf" else None
@@ -154,7 +153,8 @@ def run_email_send(job: Job, provider: EmailProvider, from_name: str, from_email
                 writer.writerow(entry)
                 log_file.flush()
                 task.progress = idx + 1
-                task.phase = "sending"
+                if not job.paused.get("emails", False):
+                    task.phase = "sending"
 
         store.save_local_file(log_path)
         task.status = "complete"
@@ -168,6 +168,10 @@ def run_email_send(job: Job, provider: EmailProvider, from_name: str, from_email
 
 
 def start_email_send(job: Job, provider: EmailProvider, from_name: str = "", from_email: str = ""):
+    # Set status BEFORE starting thread to avoid race condition with polling
+    job.tasks["emails"].status = "running"
+    job.tasks["emails"].phase = "sending"
+    job.status = "running"
     thread = threading.Thread(
         target=run_email_send,
         args=(job, provider, from_name, from_email),

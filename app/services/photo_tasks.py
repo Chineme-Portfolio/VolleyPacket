@@ -63,8 +63,6 @@ def run_photo_download(job: Job):
     task = job.tasks["photos"]
     data = job.data
     task.total = len(data)
-    task.status = "running"
-    task.phase = "downloading"
 
     photo_folder = os.path.join(config.OUTPUT_FOLDER, f"photos_{job.job_id}")
     os.makedirs(photo_folder, exist_ok=True)
@@ -120,5 +118,8 @@ def run_photo_download(job: Job):
 
 
 def start_photo_download(job: Job):
+    job.tasks["photos"].status = "running"
+    job.tasks["photos"].phase = "downloading"
+    job.status = "running"
     thread = threading.Thread(target=run_photo_download, args=(job,), daemon=True)
     thread.start()
