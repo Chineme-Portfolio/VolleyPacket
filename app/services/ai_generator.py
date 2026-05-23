@@ -78,6 +78,7 @@ def generate_template_from_content(
     for pc in parsed_contents:
         fields = pc.get("detected_fields", {}) if isinstance(pc.get("detected_fields"), dict) else {}
         is_image = fields.get("is_image", False)
+        image_intent = pc.get("image_intent", "reference")  # "embed" or "reference"
 
         if is_image:
             has_image = True
@@ -91,12 +92,24 @@ def generate_template_from_content(
                     "data": image_data,
                 },
             })
-            # Store data URI for post-processing
-            image_data_uris.append(f"data:{media_type};base64,{image_data}")
+            if image_intent == "embed":
+                # This image will be baked into the template HTML
+                embed_index = len(image_data_uris) + 1
+                image_data_uris.append(f"data:{media_type};base64,{image_data}")
+                content_blocks.append({
+                    "type": "text",
+                    "text": f"[This is image #{embed_index} to EMBED in the template. Use <img src=\"{{EMBEDDED_IMAGE_{embed_index}}}\" /> where this image should appear.]\n",
+                })
+            else:
+                # Reference image — Claude sees it for design inspiration only
+                content_blocks.append({
+                    "type": "text",
+                    "text": "[This image is a DESIGN REFERENCE. Recreate the look/layout with HTML/CSS — do NOT use {EMBEDDED_IMAGE_N} for this image.]\n",
+                })
         elif pc.get("raw_text"):
             has_document = True
             # Strip image data from document content to avoid bloating the prompt
-            clean_pc = {k: v for k, v in pc.items() if k != "detected_fields"}
+            clean_pc = {k: v for k, v in pc.items() if k not in ("detected_fields", "image_intent")}
             content_blocks.append({
                 "type": "text",
                 "text": f"Document content:\n\n{json.dumps(clean_pc, indent=2)}\n\n",

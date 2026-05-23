@@ -22,6 +22,8 @@ interface ChatMessage {
   attachmentName?: string;
   previewUrl?: string;
   templateData?: Record<string, unknown>;
+  /** For image intent question — index into uploadedDocs */
+  imageIntentIndex?: number;
 }
 
 const FILTERS = [
@@ -36,6 +38,11 @@ const WELCOME_MSG: ChatMessage = {
   role: "assistant",
   text: "Hi! I can help you create a professional template. You can:\n\n• **Describe** the template you want (organization name, colors, style)\n• **Upload** an existing document (PDF, DOCX, HTML) and I'll convert it\n\nTell me what columns your data has (e.g. Name, Email, Score) and I'll create a template with those placeholders.",
 };
+
+interface UploadedFile extends UploadResponse {
+  /** For images: "embed" = bake into template, "reference" = visual reference for AI */
+  imageIntent?: "embed" | "reference";
+}
 
 const CHAT_STORAGE_KEY = "vp_template_chat";
 
@@ -67,7 +74,7 @@ export default function TemplatesPage() {
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadChatFromStorage());
   const [input, setInput] = useState("");
   const [generating, setGenerating] = useState(false);
-  const [uploadedDocs, setUploadedDocs] = useState<UploadResponse[]>([]);
+  const [uploadedDocs, setUploadedDocs] = useState<UploadedFile[]>([]);
   const [generatedTemplate, setGeneratedTemplate] = useState<Record<string, unknown> | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -120,17 +127,29 @@ export default function TemplatesPage() {
     try {
       addMessage({ role: "system", text: loadingText });
       const result = await uploadDocument(file);
-      setUploadedDocs((prev) => [...prev, result]);
-      const responseText = isImage
-        ? `I've received the image **${result.filename}**. I'll use AI vision to recreate it as an HTML template.\n\nYou can upload more files (e.g. a document with body text) or add instructions and I'll generate.`
-        : `I've parsed **${result.filename}**. I found content like company name, subject, and body text.\n\nYou can upload more files (e.g. a letterhead image) or add instructions and I'll generate.`;
-      setMessages((prev) =>
-        prev.filter((m) => m.text !== loadingText).concat({
-          id: Date.now().toString(),
-          role: "assistant",
-          text: responseText,
-        })
-      );
+
+      if (isImage) {
+        // Add to docs without intent yet — will be set when user clicks a button
+        const docIndex = uploadedDocs.length;
+        setUploadedDocs((prev) => [...prev, result]);
+        setMessages((prev) =>
+          prev.filter((m) => m.text !== loadingText).concat({
+            id: Date.now().toString(),
+            role: "assistant",
+            text: `I've received **${result.filename}**. How should I use this image?`,
+            imageIntentIndex: docIndex,
+          })
+        );
+      } else {
+        setUploadedDocs((prev) => [...prev, result]);
+        setMessages((prev) =>
+          prev.filter((m) => m.text !== loadingText).concat({
+            id: Date.now().toString(),
+            role: "assistant",
+            text: `I've parsed **${result.filename}**. I found content like company name, subject, and body text.\n\nYou can upload more files (e.g. a letterhead image) or add instructions and I'll generate.`,
+          })
+        );
+      }
     } catch (err) {
       setMessages((prev) =>
         prev.filter((m) => m.text !== loadingText).concat({
@@ -140,6 +159,21 @@ export default function TemplatesPage() {
         })
       );
     }
+  }
+
+  function setImageIntent(docIndex: number, intent: "embed" | "reference", msgId: string) {
+    setUploadedDocs((prev) =>
+      prev.map((doc, i) => (i === docIndex ? { ...doc, imageIntent: intent } : doc))
+    );
+    // Update the message to show the choice and remove buttons
+    const label = intent === "embed" ? "Embed in template" : "Use as design reference";
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === msgId
+          ? { ...m, text: m.text + `\n\n✓ **${label}**\n\nYou can upload more files or add instructions and I'll generate.`, imageIntentIndex: undefined }
+          : m
+      )
+    );
   }
 
   async function handleSend() {
@@ -159,7 +193,11 @@ export default function TemplatesPage() {
 
     try {
       const parsedContents = uploadedDocs.length > 0
-        ? uploadedDocs.map((doc) => ({ raw_text: doc.raw_text, ...doc.detected_fields }))
+        ? uploadedDocs.map((doc) => ({
+            raw_text: doc.raw_text,
+            ...doc.detected_fields,
+            image_intent: doc.imageIntent || undefined,
+          }))
         : [{ raw_text: text, detected_fields: {} }];
 
       const instructions = uploadedDocs.length > 0 ? text : undefined;
@@ -344,6 +382,22 @@ export default function TemplatesPage() {
                   }`}
                 >
                   <ChatMessageText text={msg.text} />
+                  {msg.imageIntentIndex !== undefined && (
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        onClick={() => setImageIntent(msg.imageIntentIndex!, "embed", msg.id)}
+                        className="px-3 py-2 text-xs font-medium rounded-xl bg-green-50 text-green-800 border border-green-200 hover:bg-green-100 transition-colors"
+                      >
+                        📌 Embed in template (logo/signature)
+                      </button>
+                      <button
+                        onClick={() => setImageIntent(msg.imageIntentIndex!, "reference", msg.id)}
+                        className="px-3 py-2 text-xs font-medium rounded-xl bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100 transition-colors"
+                      >
+                        🎨 Use as design reference
+                      </button>
+                    </div>
+                  )}
                   {msg.previewUrl && (
                     <div className="mt-3 rounded-xl overflow-hidden border border-gray-200">
                       <iframe src={msg.previewUrl} className="w-full h-64" title="Template preview" sandbox="allow-same-origin" />
