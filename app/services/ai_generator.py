@@ -25,6 +25,14 @@ DESIGN RULES:
 - Make it look professional and polished — like something from a real organization.
 - Include a footer with the organization info and "Powered by VolleyPacket" credit.
 
+IMAGE RULES:
+- If the user uploads a logo, letterhead, or design image, use the placeholder {EMBEDDED_IMAGE_1} as the src for an <img> tag where that image should appear. The system will replace it with the actual image data automatically.
+  Example: <img src="{EMBEDDED_IMAGE_1}" alt="Logo" style="width: 150px;" />
+- If multiple images are uploaded, use {EMBEDDED_IMAGE_1}, {EMBEDDED_IMAGE_2}, etc. in order.
+- For per-row dynamic photos (e.g. passport photos, headshots from a spreadsheet), use {PhotoURL} as the src:
+  Example: <img src="{PhotoURL}" alt="Photo" style="width: 100px; height: 120px; object-fit: cover;" />
+- Do NOT include {EMBEDDED_IMAGE_N} or {PhotoURL} in the "placeholders" array — they are handled separately.
+
 PLACEHOLDER RULES:
 - Use curly brace placeholders like {Name}, {Email}, {Date} for personalized data.
 - The user will tell you which fields/columns they have — use EXACTLY those names.
@@ -42,6 +50,7 @@ Return ONLY a JSON object with these keys:
 
 The html_content must be a COMPLETE HTML document (<!DOCTYPE html> through </html>).
 The placeholders array must list every {Placeholder} name used in the HTML.
+Do NOT include EMBEDDED_IMAGE_N or PhotoURL in the placeholders array.
 
 Return ONLY valid JSON. No markdown, no explanation, no code fences."""
 
@@ -63,6 +72,8 @@ def generate_template_from_content(
     content_blocks = []
     has_image = False
     has_document = False
+    # Track uploaded images for post-processing {EMBEDDED_IMAGE_N} placeholders
+    image_data_uris: list[str] = []
 
     for pc in parsed_contents:
         fields = pc.get("detected_fields", {}) if isinstance(pc.get("detected_fields"), dict) else {}
@@ -80,11 +91,15 @@ def generate_template_from_content(
                     "data": image_data,
                 },
             })
+            # Store data URI for post-processing
+            image_data_uris.append(f"data:{media_type};base64,{image_data}")
         elif pc.get("raw_text"):
             has_document = True
+            # Strip image data from document content to avoid bloating the prompt
+            clean_pc = {k: v for k, v in pc.items() if k != "detected_fields"}
             content_blocks.append({
                 "type": "text",
-                "text": f"Document content:\n\n{json.dumps(pc, indent=2)}\n\n",
+                "text": f"Document content:\n\n{json.dumps(clean_pc, indent=2)}\n\n",
             })
 
     # Build the instruction text
@@ -125,11 +140,17 @@ def generate_template_from_content(
     html = data.get("html_content", "")
     declared_placeholders = data.get("placeholders", [])
 
+    # Post-process: replace {EMBEDDED_IMAGE_N} with actual base64 data URIs
+    for idx, data_uri in enumerate(image_data_uris, start=1):
+        html = html.replace(f"{{EMBEDDED_IMAGE_{idx}}}", data_uri)
+
     # Also scan the HTML for any {Placeholder} patterns the AI used
     found = set(re.findall(r"\{([A-Za-z_]\w*)\}", html))
-    # Filter out CSS/JS braces by only keeping capitalized or known patterns
+    # Filter out CSS/JS braces and internal placeholders
+    internal_placeholders = {"PhotoURL", "PhotoLink"}
     placeholders = sorted(
-        set(declared_placeholders) | {p for p in found if p[0].isupper() or p in declared_placeholders}
+        (set(declared_placeholders) | {p for p in found if p[0].isupper() or p in declared_placeholders})
+        - internal_placeholders
     )
 
     return TemplateConfig(

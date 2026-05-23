@@ -190,6 +190,31 @@ def preview_template(template_id: str, user: UserRow = Depends(get_current_user)
     return HTMLResponse(content=html, status_code=200)
 
 
+@router.get("/{template_id}/download")
+def download_template_pdf(template_id: str, user: UserRow = Depends(get_current_user)):
+    """Download a PDF preview of a template with sample data filled in."""
+    session = get_session()
+    try:
+        row = session.get(TemplateRow, template_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Template not found")
+
+        template = TemplateConfig(**json.loads(row.config_json))
+    finally:
+        session.close()
+
+    os.makedirs(config.OUTPUT_FOLDER, exist_ok=True)
+    pdf_path = os.path.join(config.OUTPUT_FOLDER, f"preview_{template_id}.pdf")
+    render_preview(template, pdf_path)
+
+    safe_name = template.name.replace(" ", "_").replace("/", "_")[:50]
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename=f"{safe_name}_preview.pdf",
+    )
+
+
 @router.post("/save")
 def save_template(request: SaveTemplateRequest, user: UserRow = Depends(get_current_user)):
     """Save or update a template. New templates are owned by the current user."""

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Template, updateTemplateVisibility, deleteTemplate, fetchAPI } from "@/lib/api";
+import { Template, updateTemplateVisibility, deleteTemplate, downloadTemplatePdf, fetchAPI } from "@/lib/api";
 import { friendlyError } from "@/lib/errors";
 import { useToast } from "@/components/Toast";
 
@@ -18,6 +18,7 @@ export default function TemplateCard({ template, onUpdate }: TemplateCardProps) 
   const [toggling, setToggling] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   const isSystem = !template.owner_id;
   const isOwn = template.is_own;
@@ -158,6 +159,31 @@ export default function TemplateCard({ template, onUpdate }: TemplateCardProps) 
             >
               Preview
             </button>
+            <button
+              onClick={async () => {
+                setDownloading(true);
+                try {
+                  await downloadTemplatePdf(template.id);
+                } catch (err) {
+                  toast(friendlyError(err));
+                } finally {
+                  setDownloading(false);
+                }
+              }}
+              disabled={downloading}
+              className="flex-shrink-0 text-center text-xs font-medium py-2 px-3 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors disabled:opacity-50"
+              title="Download PDF preview"
+            >
+              {downloading ? (
+                <div className="w-4 h-4 border-2 border-gray-500 border-t-transparent rounded-full animate-spin mx-auto" />
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="mx-auto">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+              )}
+            </button>
             <button className="flex-1 text-center text-xs font-medium py-2 rounded-xl bg-green-800 text-white hover:bg-green-900 transition-colors">
               Use Template
             </button>
@@ -174,14 +200,32 @@ export default function TemplateCard({ template, onUpdate }: TemplateCardProps) 
           >
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
               <h3 className="text-lg font-semibold text-gray-900">{template.name}</h3>
-              <button
-                onClick={() => setShowPreview(false)}
-                className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-gray-100 transition-colors"
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2">
-                  <path d="M18 6L6 18M6 6l12 12" />
-                </svg>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={async () => {
+                    setDownloading(true);
+                    try {
+                      await downloadTemplatePdf(template.id);
+                    } catch (err) {
+                      toast(friendlyError(err));
+                    } finally {
+                      setDownloading(false);
+                    }
+                  }}
+                  disabled={downloading}
+                  className="px-3 py-1.5 text-xs font-medium text-green-800 bg-green-50 rounded-lg hover:bg-green-100 transition-colors disabled:opacity-50"
+                >
+                  {downloading ? "Downloading..." : "Download PDF"}
+                </button>
+                <button
+                  onClick={() => setShowPreview(false)}
+                  className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-gray-100 transition-colors"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2">
+                    <path d="M18 6L6 18M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
             </div>
             <div className="flex-1 bg-gray-100">
               {loadingPreview ? (

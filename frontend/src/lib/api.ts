@@ -282,6 +282,27 @@ export async function deleteTemplate(templateId: string): Promise<{ message: str
   return fetchJSON(`/templates/${templateId}`, { method: "DELETE" });
 }
 
+export function downloadTemplatePdf(templateId: string) {
+  const token = typeof window !== "undefined" ? localStorage.getItem("vp_token") : null;
+  const url = `${API_BASE}/templates/${templateId}/download`;
+  // Use a hidden link with auth header via fetch + blob
+  return fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    .then((res) => {
+      if (!res.ok) throw new Error("Download failed");
+      return res.blob();
+    })
+    .then((blob) => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      const disposition = "template_preview.pdf";
+      a.download = disposition;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    });
+}
+
 export async function updateTemplateVisibility(
   templateId: string,
   visibility: string,
