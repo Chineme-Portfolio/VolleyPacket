@@ -134,6 +134,17 @@ def init_db():
 
     _engine = create_engine(db_url, pool_pre_ping=True)
     _SessionLocal = sessionmaker(bind=_engine)
+
+    # Migrate: drop old jobs table if it has the wrong schema (pre-DB migration)
+    from sqlalchemy import inspect, text
+    inspector = inspect(_engine)
+    if "jobs" in inspector.get_table_names():
+        existing_cols = {c["name"] for c in inspector.get_columns("jobs")}
+        expected_cols = {c.name for c in JobRow.__table__.columns}
+        if not expected_cols.issubset(existing_cols):
+            with _engine.begin() as conn:
+                conn.execute(text("DROP TABLE IF EXISTS jobs CASCADE"))
+
     Base.metadata.create_all(_engine)
 
 
