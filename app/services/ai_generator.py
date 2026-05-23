@@ -54,26 +54,52 @@ def generate_template_from_content(
     """Generate an HTML template using AI."""
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
-    user_message = ""
+    # Check if this is an image upload (vision mode)
+    is_image = (
+        parsed_content
+        and parsed_content.get("detected_fields", {}).get("is_image")
+    )
 
-    if parsed_content and parsed_content.get("raw_text"):
-        user_message += f"Document content to base the template on:\n\n{json.dumps(parsed_content, indent=2)}\n\n"
+    # Build the message content blocks
+    content_blocks = []
+
+    if is_image:
+        # Send image directly to Claude's vision
+        fields = parsed_content.get("detected_fields", {})
+        image_data = fields.get("image_data", "")
+        media_type = fields.get("image_media_type", "image/png")
+
+        content_blocks.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": image_data,
+            },
+        })
+        text_part = "Look at this document/template image carefully. Recreate it as a professional HTML/CSS template, matching the layout, styling, and structure as closely as possible. Replace any personal data or blank fields with {Placeholder} merge fields.\n\n"
+    else:
+        text_part = ""
+        if parsed_content and parsed_content.get("raw_text"):
+            text_part += f"Document content to base the template on:\n\n{json.dumps(parsed_content, indent=2)}\n\n"
 
     if columns:
-        user_message += f"Available data columns from the spreadsheet: {', '.join(columns)}\n"
-        user_message += f"Use these as placeholders: {', '.join('{' + c + '}' for c in columns)}\n\n"
+        text_part += f"Available data columns from the spreadsheet: {', '.join(columns)}\n"
+        text_part += f"Use these as placeholders: {', '.join('{' + c + '}' for c in columns)}\n\n"
 
     if instructions:
-        user_message += f"User instructions:\n{instructions}\n"
+        text_part += f"User instructions:\n{instructions}\n"
 
-    if not user_message.strip():
-        user_message = "Create a professional, modern invitation letter template with common fields like Name, Email, Date, and Venue."
+    if not text_part.strip() and not is_image:
+        text_part = "Create a professional, modern invitation letter template with common fields like Name, Email, Date, and Venue."
+
+    content_blocks.append({"type": "text", "text": text_part})
 
     response = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=4096,
         system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_message}],
+        messages=[{"role": "user", "content": content_blocks}],
     )
 
     raw = response.content[0].text.strip()

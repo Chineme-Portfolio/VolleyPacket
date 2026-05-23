@@ -113,23 +113,30 @@ export default function TemplatesPage() {
 
     addMessage({ role: "user", text: `Uploaded **${file.name}**`, attachmentName: file.name });
 
+    const imageExts = [".png", ".jpg", ".jpeg", ".webp"];
+    const isImage = imageExts.some((ext) => file.name.toLowerCase().endsWith(ext));
+    const loadingText = isImage ? "Analyzing image..." : "Parsing document...";
+
     try {
-      addMessage({ role: "system", text: "Parsing document..." });
+      addMessage({ role: "system", text: loadingText });
       const result = await uploadDocument(file);
       setUploadedDoc(result);
+      const responseText = isImage
+        ? `I've received the image **${result.filename}**. I'll use AI vision to recreate it as an HTML template.\n\nWould you like me to generate a template from this image? You can also add instructions like "match the colors exactly" or "make it more modern".`
+        : `I've parsed **${result.filename}**. I found content like company name, subject, and body text.\n\nWould you like me to generate a template from this? You can also add instructions like "use blue colors" or "make it more formal".`;
       setMessages((prev) =>
-        prev.filter((m) => m.text !== "Parsing document...").concat({
+        prev.filter((m) => m.text !== loadingText).concat({
           id: Date.now().toString(),
           role: "assistant",
-          text: `I've parsed **${result.filename}**. I found content like company name, subject, and body text.\n\nWould you like me to generate a template from this? You can also add instructions like "use blue colors" or "make it more formal".`,
+          text: responseText,
         })
       );
     } catch (err) {
       setMessages((prev) =>
-        prev.filter((m) => m.text !== "Parsing document...").concat({
+        prev.filter((m) => m.text !== loadingText).concat({
           id: Date.now().toString(),
           role: "assistant",
-          text: `Sorry, I couldn't parse that file. ${friendlyError(err)}`,
+          text: `Sorry, I couldn't process that file. ${friendlyError(err)}`,
         })
       );
     }
@@ -381,11 +388,11 @@ export default function TemplatesPage() {
         {/* Input area */}
         <div className="px-6 py-4 border-t border-gray-100 bg-white">
           <div className="flex items-center gap-3">
-            <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".pdf,.doc,.docx,.html,.htm,.txt" className="hidden" />
+            <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".pdf,.doc,.docx,.html,.htm,.txt,.png,.jpg,.jpeg,.webp" className="hidden" />
             <button
               onClick={() => fileInputRef.current?.click()}
               className="flex-shrink-0 w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors"
-              title="Upload document"
+              title="Upload document or image"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2">
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />

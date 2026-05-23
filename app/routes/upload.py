@@ -15,14 +15,18 @@ router = APIRouter()
 MAX_UPLOAD_SIZE = 25 * 1024 * 1024  # 25 MB
 
 
+IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp")
+DOCUMENT_EXTENSIONS = (".pdf", ".doc", ".docx", ".html", ".htm", ".txt")
+ALLOWED_EXTENSIONS = DOCUMENT_EXTENSIONS + IMAGE_EXTENSIONS
+
+
 @router.post("", response_model=UploadResponse)
 async def upload_document(file: UploadFile = File(...), user: UserRow = Depends(get_current_user)):
-    allowed = (".pdf", ".doc", ".docx", ".html", ".htm", ".txt")
     ext = os.path.splitext(file.filename)[1].lower()
-    if ext not in allowed:
+    if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(allowed)}"
+            detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"
         )
 
     os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
@@ -38,6 +42,22 @@ async def upload_document(file: UploadFile = File(...), user: UserRow = Depends(
     with open(save_path, "wb") as f:
         f.write(content)
     store.save_local_file(save_path)
+
+    if ext in IMAGE_EXTENSIONS:
+        # For images, we don't extract text — the AI will see the image directly
+        import base64
+        mime_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+        image_b64 = base64.b64encode(content).decode("utf-8")
+        return UploadResponse(
+            file_id=file_id,
+            filename=file.filename,
+            raw_text="[Image uploaded — AI will analyze visually]",
+            detected_fields={
+                "is_image": True,
+                "image_data": image_b64,
+                "image_media_type": mime_map.get(ext, "image/png"),
+            },
+        )
 
     try:
         result = parse_file(save_path)
