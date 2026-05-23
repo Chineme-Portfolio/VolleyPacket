@@ -106,14 +106,14 @@ export async function uploadDocument(file: File): Promise<UploadResponse> {
 }
 
 export async function generateTemplate(
-  parsedContent: Record<string, unknown>,
+  parsedContents: Record<string, unknown>[],
   instructions?: string,
   columns?: string[],
 ): Promise<Record<string, unknown>> {
   return fetchJSON("/generate-template", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ parsed_content: parsedContent, instructions, columns }),
+    body: JSON.stringify({ parsed_contents: parsedContents, instructions, columns }),
   });
 }
 

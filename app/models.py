@@ -27,7 +27,8 @@ class UploadResponse(BaseModel):
 
 
 class GenerateTemplateRequest(BaseModel):
-    parsed_content: dict
+    parsed_content: Optional[dict] = None  # single doc (backward compat)
+    parsed_contents: Optional[list[dict]] = None  # multiple docs (image + document combo)
     instructions: Optional[str] = None
     columns: Optional[list[str]] = None  # CSV column names to use as placeholders
 

@@ -67,7 +67,7 @@ export default function TemplatesPage() {
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadChatFromStorage());
   const [input, setInput] = useState("");
   const [generating, setGenerating] = useState(false);
-  const [uploadedDoc, setUploadedDoc] = useState<UploadResponse | null>(null);
+  const [uploadedDocs, setUploadedDocs] = useState<UploadResponse[]>([]);
   const [generatedTemplate, setGeneratedTemplate] = useState<Record<string, unknown> | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -120,10 +120,10 @@ export default function TemplatesPage() {
     try {
       addMessage({ role: "system", text: loadingText });
       const result = await uploadDocument(file);
-      setUploadedDoc(result);
+      setUploadedDocs((prev) => [...prev, result]);
       const responseText = isImage
-        ? `I've received the image **${result.filename}**. I'll use AI vision to recreate it as an HTML template.\n\nWould you like me to generate a template from this image? You can also add instructions like "match the colors exactly" or "make it more modern".`
-        : `I've parsed **${result.filename}**. I found content like company name, subject, and body text.\n\nWould you like me to generate a template from this? You can also add instructions like "use blue colors" or "make it more formal".`;
+        ? `I've received the image **${result.filename}**. I'll use AI vision to recreate it as an HTML template.\n\nYou can upload more files (e.g. a document with body text) or add instructions and I'll generate.`
+        : `I've parsed **${result.filename}**. I found content like company name, subject, and body text.\n\nYou can upload more files (e.g. a letterhead image) or add instructions and I'll generate.`;
       setMessages((prev) =>
         prev.filter((m) => m.text !== loadingText).concat({
           id: Date.now().toString(),
@@ -158,12 +158,12 @@ export default function TemplatesPage() {
     addMessage({ role: "system", text: "Generating template with AI..." });
 
     try {
-      const parsedContent = uploadedDoc
-        ? { raw_text: uploadedDoc.raw_text, ...uploadedDoc.detected_fields }
-        : { raw_text: text, detected_fields: {} };
+      const parsedContents = uploadedDocs.length > 0
+        ? uploadedDocs.map((doc) => ({ raw_text: doc.raw_text, ...doc.detected_fields }))
+        : [{ raw_text: text, detected_fields: {} }];
 
-      const instructions = uploadedDoc ? text : undefined;
-      const template = await generateTemplate(parsedContent, instructions);
+      const instructions = uploadedDocs.length > 0 ? text : undefined;
+      const template = await generateTemplate(parsedContents, instructions);
       setGeneratedTemplate(template);
       setEditName((template as { name?: string }).name || "Untitled Template");
       setEditDesc((template as { description?: string }).description || "");
@@ -184,7 +184,7 @@ export default function TemplatesPage() {
           templateData: template,
         })
       );
-      setUploadedDoc(null);
+      setUploadedDocs([]);
     } catch (err) {
       setMessages((prev) =>
         prev.filter((m) => m.text !== "Generating template with AI...").concat({
@@ -227,7 +227,7 @@ export default function TemplatesPage() {
     setGeneratedTemplate(null);
     setEditName("");
     setEditDesc("");
-    setUploadedDoc(null);
+    setUploadedDocs([]);
   }
 
   return (
@@ -403,7 +403,7 @@ export default function TemplatesPage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-              placeholder={uploadedDoc ? "Add instructions for the template..." : "Describe your template..."}
+              placeholder={uploadedDocs.length > 0 ? "Add instructions for the template..." : "Describe your template..."}
               className="flex-1 bg-gray-100 rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 outline-none focus:ring-2 focus:ring-green-700/20 transition-shadow"
               disabled={generating}
             />

@@ -25,9 +25,14 @@ def generate_template(request: GenerateTemplateRequest, user: UserRow = Depends(
             detail=f"You've used all {limit} AI messages this month. Upgrade your plan for more.",
         )
 
+    # Normalize: support both singular parsed_content and plural parsed_contents
+    contents = request.parsed_contents or []
+    if request.parsed_content:
+        contents.insert(0, request.parsed_content)
+
     try:
         template = generate_template_from_content(
-            request.parsed_content,
+            contents,
             request.instructions,
             request.columns,
         )

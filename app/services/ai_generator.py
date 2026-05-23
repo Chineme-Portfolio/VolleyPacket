@@ -47,41 +47,52 @@ Return ONLY valid JSON. No markdown, no explanation, no code fences."""
 
 
 def generate_template_from_content(
-    parsed_content: dict,
+    parsed_contents: list[dict],
     instructions: str = None,
     columns: list[str] = None,
 ) -> TemplateConfig:
-    """Generate an HTML template using AI."""
+    """Generate an HTML template using AI.
+
+    Accepts a list of parsed content dicts. Each can be a document (with raw_text)
+    or an image (with is_image flag + base64 data). Multiple files are combined
+    into a single prompt — e.g. a letterhead image + a body text document.
+    """
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
-    # Check if this is an image upload (vision mode)
-    is_image = (
-        parsed_content
-        and parsed_content.get("detected_fields", {}).get("is_image")
-    )
-
-    # Build the message content blocks
+    # Build the message content blocks from all uploaded files
     content_blocks = []
+    has_image = False
+    has_document = False
 
-    if is_image:
-        # Send image directly to Claude's vision
-        fields = parsed_content.get("detected_fields", {})
-        image_data = fields.get("image_data", "")
-        media_type = fields.get("image_media_type", "image/png")
+    for pc in parsed_contents:
+        fields = pc.get("detected_fields", {}) if isinstance(pc.get("detected_fields"), dict) else {}
+        is_image = fields.get("is_image", False)
 
-        content_blocks.append({
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": media_type,
-                "data": image_data,
-            },
-        })
+        if is_image:
+            has_image = True
+            image_data = fields.get("image_data", "")
+            media_type = fields.get("image_media_type", "image/png")
+            content_blocks.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": media_type,
+                    "data": image_data,
+                },
+            })
+        elif pc.get("raw_text"):
+            has_document = True
+            content_blocks.append({
+                "type": "text",
+                "text": f"Document content:\n\n{json.dumps(pc, indent=2)}\n\n",
+            })
+
+    # Build the instruction text
+    text_part = ""
+    if has_image and has_document:
+        text_part = "I've uploaded both an image and a document. Use the image as a visual reference for the design/layout (letterhead, colors, logo placement, styling) and the document text for the body content. Combine them into one cohesive HTML/CSS template. Replace any personal data or blank fields with {Placeholder} merge fields.\n\n"
+    elif has_image:
         text_part = "Look at this document/template image carefully. Recreate it as a professional HTML/CSS template, matching the layout, styling, and structure as closely as possible. Replace any personal data or blank fields with {Placeholder} merge fields.\n\n"
-    else:
-        text_part = ""
-        if parsed_content and parsed_content.get("raw_text"):
-            text_part += f"Document content to base the template on:\n\n{json.dumps(parsed_content, indent=2)}\n\n"
 
     if columns:
         text_part += f"Available data columns from the spreadsheet: {', '.join(columns)}\n"
@@ -90,7 +101,7 @@ def generate_template_from_content(
     if instructions:
         text_part += f"User instructions:\n{instructions}\n"
 
-    if not text_part.strip() and not is_image:
+    if not text_part.strip() and not has_image:
         text_part = "Create a professional, modern invitation letter template with common fields like Name, Email, Date, and Venue."
 
     content_blocks.append({"type": "text", "text": text_part})
