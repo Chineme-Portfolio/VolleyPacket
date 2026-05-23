@@ -420,6 +420,65 @@ def _uncache_job(job_id: str):
         _cache.pop(job_id, None)
 
 
+def delete_job_fully(job: Job):
+    """Delete a job: DB record, cached object, and ALL associated files."""
+    job_id = job.job_id
+
+    # 1. Remove from DB
+    from app.database import get_session, JobRow
+    session = get_session()
+    try:
+        row = session.get(JobRow, job_id)
+        if row:
+            session.delete(row)
+            session.commit()
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Failed to delete job {job_id} from DB: {e}")
+        raise
+    finally:
+        session.close()
+
+    # 2. Remove from cache
+    _uncache_job(job_id)
+
+    # 3. Delete job data folder (data.xlsx, valid_data.xlsx, etc.)
+    job_data_key = f"data/jobs/{job_id}"
+    store.delete_dir(job_data_key)
+
+    # 4. Delete PDF folder
+    pdf_key = f"output/pdfs_{job_id}"
+    store.delete_dir(pdf_key)
+
+    # 5. Delete PDF zip
+    for suffix in ("", "_partial"):
+        zip_key = f"output/pdfs_{job_id}{suffix}.zip"
+        try:
+            store.delete(zip_key)
+        except Exception:
+            pass
+
+    # 6. Delete logs (run_*, sms_run_*, etc.) — use job timestamp
+    timestamp = job.timestamp
+    if timestamp:
+        for prefix in ("run", "sms_run", "photo_download", "invalid_emails"):
+            for ext in (".csv", ".xlsx"):
+                log_key = f"logs/{prefix}_{timestamp}{ext}"
+                try:
+                    store.delete(log_key)
+                except Exception:
+                    pass
+
+    # 7. Delete report
+    report_key = f"logs/report_{job_id}.xlsx"
+    try:
+        store.delete(report_key)
+    except Exception:
+        pass
+
+    logger.info(f"Job {job_id} fully deleted (DB + files)")
+
+
 def create_job(candidate_file: str, data: pd.DataFrame, owner_id: str = "") -> Job:
     job_id = str(uuid.uuid4())[:8]
     job = Job(job_id=job_id, candidate_file=candidate_file, data=data, owner_id=owner_id)

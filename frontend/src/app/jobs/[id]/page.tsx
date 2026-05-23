@@ -9,6 +9,7 @@ import EmailComposer from "@/components/EmailComposer";
 import {
   getJob,
   cancelJob,
+  deleteJob,
   allocateJob,
   startPdfs,
   startEmails,
@@ -57,12 +58,35 @@ export default function JobDetailPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [smsDetailed, setSmsDetailed] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollActiveRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadJob = useCallback(async () => {
     try {
       const data = await getJob(jobId);
       setJob(data);
+
+      // Manage polling based on whether any task is running
+      const hasRunning = Object.values(data.tasks || {}).some((t) => t.status === "running");
+      if (hasRunning && !pollActiveRef.current) {
+        pollActiveRef.current = true;
+        pollRef.current = setInterval(async () => {
+          try {
+            const fresh = await getJob(jobId);
+            setJob(fresh);
+            const stillRunning = Object.values(fresh.tasks || {}).some((t) => t.status === "running");
+            if (!stillRunning) {
+              clearInterval(pollRef.current!);
+              pollRef.current = null;
+              pollActiveRef.current = false;
+            }
+          } catch { /* ignore poll errors */ }
+        }, 2000);
+      } else if (!hasRunning && pollActiveRef.current) {
+        clearInterval(pollRef.current!);
+        pollRef.current = null;
+        pollActiveRef.current = false;
+      }
     } catch (err) {
       setError(friendlyError(err));
     } finally {
@@ -72,21 +96,14 @@ export default function JobDetailPage() {
 
   useEffect(() => {
     loadJob();
-  }, [loadJob]);
-
-  useEffect(() => {
-    if (!job) return;
-    const hasRunning = Object.values(job.tasks || {}).some((t) => t.status === "running");
-    if (hasRunning) {
-      pollRef.current = setInterval(loadJob, 2000);
-    } else if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+        pollActiveRef.current = false;
+      }
     };
-  }, [job, loadJob]);
+  }, [loadJob]);
 
   async function doAction(key: string, fn: () => Promise<unknown>) {
     setActionLoading(key);
@@ -183,6 +200,22 @@ export default function JobDetailPage() {
               {actionLoading === "cancel" ? "Cancelling..." : "Cancel"}
             </button>
           )}
+
+          {/* Delete */}
+          <button
+            onClick={async () => {
+              if (!confirm("Delete this job and all its files? This cannot be undone.")) return;
+              await doAction("delete", async () => {
+                await deleteJob(jobId);
+                router.push("/jobs");
+              });
+            }}
+            disabled={actionLoading === "delete" || hasRunning}
+            className="px-3 sm:px-4 py-2 text-sm font-medium text-red-600 bg-white border border-red-200 rounded-xl hover:bg-red-50 transition-colors disabled:opacity-50"
+            title={hasRunning ? "Stop running tasks before deleting" : "Delete job and all files"}
+          >
+            {actionLoading === "delete" ? "Deleting..." : "Delete"}
+          </button>
         </div>
       </div>
 
@@ -364,6 +397,15 @@ export default function JobDetailPage() {
                     className="flex-1 text-center px-4 py-2 text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded-xl hover:bg-green-100 transition-colors"
                   >
                     Download ZIP
+                  </a>
+                )}
+
+                {taskKey === "pdfs" && (isRunning || isPaused) && task.progress > 0 && (
+                  <a
+                    href={getPdfDownloadUrl(jobId) + "?partial=true"}
+                    className="flex-1 text-center px-4 py-2 text-sm font-medium text-gray-600 bg-gray-50 border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors"
+                  >
+                    Download {task.progress} PDFs so far
                   </a>
                 )}
               </div>

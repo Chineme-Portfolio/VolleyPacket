@@ -170,6 +170,10 @@ export async function cancelJob(jobId: string): Promise<{ message: string }> {
   return fetchJSON(`/jobs/${jobId}/cancel`, { method: "POST" });
 }
 
+export async function deleteJob(jobId: string): Promise<{ message: string }> {
+  return fetchJSON(`/jobs/${jobId}`, { method: "DELETE" });
+}
+
 export async function allocateJob(jobId: string): Promise<{ message: string }> {
   return fetchJSON(`/jobs/${jobId}/allocate`, { method: "POST" });
 }

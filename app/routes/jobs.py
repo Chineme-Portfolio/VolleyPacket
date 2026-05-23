@@ -136,6 +136,22 @@ def cancel_job(job_id: str, user: UserRow = Depends(get_current_user)):
     return {"message": "Job cancelled", "job_id": job_id}
 
 
+# --- DELETE JOB ---
+
+@router.delete("/{job_id}")
+def delete_job(job_id: str, user: UserRow = Depends(get_current_user)):
+    from app.services.jobs import delete_job_fully
+    job = _get_job_or_404(job_id, user)
+
+    # Block delete if any task is running
+    running = [k for k, t in job.tasks.items() if t.status == "running"]
+    if running:
+        raise HTTPException(status_code=409, detail=f"Cannot delete while tasks are running: {running}")
+
+    delete_job_fully(job)
+    return {"message": "Job deleted", "job_id": job_id}
+
+
 # --- PAUSE / RESUME TASK ---
 
 @router.post("/{job_id}/{task_name}/pause")
@@ -352,10 +368,32 @@ def get_pdf_status(job_id: str, user: UserRow = Depends(get_current_user)):
 
 
 @router.get("/{job_id}/pdfs/download")
-def download_pdfs(job_id: str, user: UserRow = Depends(get_current_user)):
-    job = _get_job_or_404(job_id, user)
+def download_pdfs(
+    job_id: str,
+    partial: bool = Query(False),
+    user: UserRow = Depends(get_current_user),
+):
+    import zipfile
 
+    job = _get_job_or_404(job_id, user)
     task = job.tasks["pdfs"]
+
+    if partial:
+        # Zip whatever PDFs exist so far (for paused/running jobs)
+        pdf_folder = job.get_pdf_folder()
+        if not os.path.isdir(pdf_folder) or not os.listdir(pdf_folder):
+            raise HTTPException(status_code=404, detail="No PDFs generated yet")
+
+        zip_path = os.path.join(config.OUTPUT_FOLDER, f"pdfs_{job_id}_partial.zip")
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for filename in sorted(os.listdir(pdf_folder)):
+                if filename.endswith(".pdf"):
+                    zf.write(os.path.join(pdf_folder, filename), filename)
+
+        from fastapi.responses import FileResponse
+        return FileResponse(zip_path, media_type="application/zip", filename=f"pdfs_{job_id}_partial.zip")
+
+    # Full download — only when complete
     if task.status != "complete":
         raise HTTPException(status_code=409, detail=f"PDFs not ready (status: {task.status})")
 
