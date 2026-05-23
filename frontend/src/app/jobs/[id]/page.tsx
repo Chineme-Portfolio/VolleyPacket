@@ -69,34 +69,40 @@ export default function JobDetailPage() {
     try {
       const data = await getJob(jobId);
       setJob(data);
-
-      // Manage polling based on whether any task is running
-      const hasRunning = Object.values(data.tasks || {}).some((t) => t.status === "running");
-      if (hasRunning && !pollActiveRef.current) {
-        pollActiveRef.current = true;
-        pollRef.current = setInterval(async () => {
-          try {
-            const fresh = await getJob(jobId);
-            setJob(fresh);
-            const stillRunning = Object.values(fresh.tasks || {}).some((t) => t.status === "running");
-            if (!stillRunning) {
-              clearInterval(pollRef.current!);
-              pollRef.current = null;
-              pollActiveRef.current = false;
-            }
-          } catch { /* ignore poll errors */ }
-        }, 2000);
-      } else if (!hasRunning && pollActiveRef.current) {
-        clearInterval(pollRef.current!);
-        pollRef.current = null;
-        pollActiveRef.current = false;
-      }
+      return data;
     } catch (err) {
       setError(friendlyError(err));
+      return null;
     } finally {
       setLoading(false);
     }
   }, [jobId]);
+
+  // Polling: start/stop based on whether any task is running
+  useEffect(() => {
+    if (!job) return;
+    const hasRunning = Object.values(job.tasks || {}).some((t) => t.status === "running");
+
+    if (hasRunning && !pollActiveRef.current) {
+      pollActiveRef.current = true;
+      pollRef.current = setInterval(async () => {
+        try {
+          const fresh = await getJob(jobId);
+          setJob(fresh);
+          const stillRunning = Object.values(fresh.tasks || {}).some((t) => t.status === "running");
+          if (!stillRunning) {
+            clearInterval(pollRef.current!);
+            pollRef.current = null;
+            pollActiveRef.current = false;
+          }
+        } catch { /* ignore poll errors */ }
+      }, 2000);
+    } else if (!hasRunning && pollActiveRef.current) {
+      clearInterval(pollRef.current!);
+      pollRef.current = null;
+      pollActiveRef.current = false;
+    }
+  }, [job, jobId]);
 
   useEffect(() => {
     loadJob();
@@ -118,6 +124,11 @@ export default function JobDetailPage() {
     setError("");
     try {
       await fn();
+      // After starting a task, the backend thread may not have set status
+      // to "running" yet. Wait briefly then reload to catch the transition.
+      if (key.startsWith("start-")) {
+        await new Promise((r) => setTimeout(r, 500));
+      }
       await loadJob();
     } catch (err) {
       setError(friendlyError(err));

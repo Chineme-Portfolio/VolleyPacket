@@ -20,7 +20,7 @@ export default function ColumnMapper({ jobId, columns, onMapped }: ColumnMapperP
 
   useEffect(() => {
     setLoading(true);
-    setConfirmed(false);
+    // Don't reset confirmed — if user already confirmed, keep it hidden
     getColumnMapping(jobId)
       .then((m) => {
         setMapping(m);
