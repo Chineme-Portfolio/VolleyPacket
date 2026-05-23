@@ -11,7 +11,7 @@ from weasyprint import HTML
 from app.models import TemplateConfig
 
 
-PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
+PLACEHOLDER_RE = re.compile(r"\{([^}]+)\}")
 
 
 def fill_placeholders(html: str, row: dict) -> str:

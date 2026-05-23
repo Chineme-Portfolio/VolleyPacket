@@ -83,10 +83,10 @@ export interface Job {
   candidate_count: number;
   columns: string[];
   template_id: string | null;
-  is_allocated: boolean;
   job_mode: string;
   email_subject: string;
   email_body: string;
+  sms_body: string;
   tasks: Record<string, TaskStatus>;
 }
 
@@ -147,10 +147,9 @@ export interface UploadResponse {
   detected_fields: Record<string, unknown>;
 }
 
-export async function createJob(file: File, isAllocated = false): Promise<Job> {
+export async function createJob(file: File): Promise<Job> {
   const form = new FormData();
   form.append("candidate_file", file);
-  form.append("is_allocated", String(isAllocated));
   const res = await fetchAPI("/jobs", { method: "POST", body: form });
   return res.json();
 }
@@ -174,10 +173,6 @@ export async function deleteJob(jobId: string): Promise<{ message: string }> {
   return fetchJSON(`/jobs/${jobId}`, { method: "DELETE" });
 }
 
-export async function allocateJob(jobId: string): Promise<{ message: string }> {
-  return fetchJSON(`/jobs/${jobId}/allocate`, { method: "POST" });
-}
-
 export async function startPdfs(jobId: string): Promise<{ message: string; total: number }> {
   return fetchJSON(`/jobs/${jobId}/pdfs/generate`, { method: "POST" });
 }
@@ -186,12 +181,8 @@ export async function startEmails(jobId: string): Promise<{ message: string; tot
   return fetchJSON(`/jobs/${jobId}/emails/send`, { method: "POST" });
 }
 
-export async function startSms(jobId: string, detailed = false): Promise<{ message: string; total: number }> {
-  return fetchJSON(`/jobs/${jobId}/sms/send`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ detailed }),
-  });
+export async function startSms(jobId: string): Promise<{ message: string; total: number }> {
+  return fetchJSON(`/jobs/${jobId}/sms/send`, { method: "POST" });
 }
 
 export async function startPhotos(jobId: string): Promise<{ message: string; total: number }> {
@@ -206,10 +197,9 @@ export async function resumeTask(jobId: string, task: string): Promise<{ message
   return fetchJSON(`/jobs/${jobId}/${task}/resume`, { method: "POST" });
 }
 
-export async function reuploadData(jobId: string, file: File, isAllocated = false): Promise<Job> {
+export async function reuploadData(jobId: string, file: File): Promise<Job> {
   const form = new FormData();
   form.append("candidate_file", file);
-  form.append("is_allocated", String(isAllocated));
   const res = await fetchAPI(`/jobs/${jobId}/data`, { method: "POST", body: form });
   return res.json();
 }
@@ -394,4 +384,57 @@ export async function generateEmailAI(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ prompt, columns, context: context || "" }),
   });
+}
+
+
+// ── Column Mapping ──────────────────────────────────────────────────
+
+export interface ColumnMapping {
+  placeholders: string[];
+  columns: string[];
+  auto_matched: Record<string, string>;
+  unmatched: string[];
+}
+
+export async function getColumnMapping(jobId: string): Promise<ColumnMapping> {
+  return fetchJSON(`/jobs/${jobId}/column-mapping`);
+}
+
+export async function applyColumnMapping(
+  jobId: string,
+  mapping: Record<string, string>,
+): Promise<{ message: string; columns: string[] }> {
+  return fetchJSON(`/jobs/${jobId}/column-mapping`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mapping }),
+  });
+}
+
+
+// ── SMS Content ─────────────────────────────────────────────────────
+
+export async function setSmsContent(
+  jobId: string,
+  body: string,
+): Promise<{ message: string }> {
+  return fetchJSON(`/jobs/${jobId}/sms-content`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ body }),
+  });
+}
+
+
+// ── Email Provider Status ───────────────────────────────────────────
+
+export interface EmailProviderStatus {
+  provider_name: string;
+  from_name: string;
+  from_email: string;
+  is_configured: boolean;
+}
+
+export async function getEmailProviderStatus(): Promise<EmailProviderStatus> {
+  return fetchJSON("/email-settings");
 }

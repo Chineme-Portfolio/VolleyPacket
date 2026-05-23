@@ -18,7 +18,6 @@ from datetime import datetime
 import pandas as pd
 
 from app.models import TemplateConfig, TaskStatus, JobResponse
-from app.services.allocator import generate_combination_slots, allocate_combinations, assign_numbers, CAPACITY_PER_SLOT
 from app.services.storage import store
 from app import config
 
@@ -111,9 +110,6 @@ class Job:
         self.candidate_file = candidate_file
         self.data = data
         self.columns = list(data.columns)
-        self.is_allocated = False
-        self.allocated_path = None
-
         # Filtered data
         self.valid_data = None
         self.invalid_data = None
@@ -151,6 +147,9 @@ class Job:
         self.email_subject = ""
         self.email_body = ""  # HTML with {Name}, {Email}, {ExamNo} placeholders
 
+        # SMS content (customizable per job)
+        self.sms_body = ""  # Plain text with {Name}, {ExamNo} placeholders
+
         # Logs
         self.log_path = None
 
@@ -162,10 +161,10 @@ class Job:
             candidate_count=len(self.data),
             columns=self.columns,
             template_id=self.template_id,
-            is_allocated=self.is_allocated,
             job_mode=self.job_mode,
             email_subject=self.email_subject,
             email_body=self.email_body,
+            sms_body=self.sms_body,
             tasks=self.tasks,
         )
 
@@ -189,11 +188,11 @@ class Job:
             row.candidate_file = self.candidate_file
             row.candidate_count = len(self.data)
             row.columns_json = json.dumps(self.columns)
-            row.is_allocated = self.is_allocated
             row.template_id = self.template_id
             row.job_mode = self.job_mode
             row.email_subject = self.email_subject
             row.email_body = self.email_body
+            row.sms_body = self.sms_body
             row.cancelled = self.cancelled
             row.paused_json = json.dumps(self.paused)
             row.tasks_json = json.dumps({k: v.model_dump() for k, v in self.tasks.items()})
@@ -242,11 +241,11 @@ class Job:
         job.timestamp = row.timestamp
         job.candidate_file = row.candidate_file
         job.columns = json.loads(row.columns_json)
-        job.is_allocated = row.is_allocated
         job.template_id = row.template_id
         job.job_mode = row.job_mode
         job.email_subject = row.email_subject
         job.email_body = row.email_body
+        job.sms_body = row.sms_body or ""
         job.cancelled = row.cancelled
         job.paused = json.loads(row.paused_json)
         job._lock = threading.Lock()
@@ -293,7 +292,6 @@ class Job:
 
         # Load template
         job.template = None
-        job.allocated_path = None
         job.pdf_folder = None
         job.static_attachment_path = None
         job.log_path = None
@@ -360,19 +358,6 @@ class Job:
         self.pdf_folder = None
         self.log_path = None
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.save(include_data=True)
-
-    def allocate(self):
-        pool = generate_combination_slots() * CAPACITY_PER_SLOT
-        self.data = allocate_combinations(self.data, pool)
-        self.data = assign_numbers(self.data)
-        self.is_allocated = True
-        self.columns = list(self.data.columns)
-
-        os.makedirs(config.DATA_FOLDER, exist_ok=True)
-        self.allocated_path = os.path.join(config.DATA_FOLDER, f"allocated_{self.timestamp}.xlsx")
-        self.data.to_excel(self.allocated_path, index=False)
-        store.save_local_file(self.allocated_path)
         self.save(include_data=True)
 
     def validate_emails(self):
@@ -583,11 +568,11 @@ def _lightweight_job_from_row(row) -> Job:
     job.timestamp = row.timestamp
     job.candidate_file = row.candidate_file
     job.columns = json.loads(row.columns_json)
-    job.is_allocated = row.is_allocated
     job.template_id = row.template_id
     job.job_mode = row.job_mode
     job.email_subject = row.email_subject
     job.email_body = row.email_body
+    job.sms_body = row.sms_body or ""
     job.cancelled = row.cancelled
     job.paused = json.loads(row.paused_json)
     job._lock = threading.Lock()
@@ -600,7 +585,6 @@ def _lightweight_job_from_row(row) -> Job:
     job.valid_data = None
     job.invalid_data = None
     job.template = None
-    job.allocated_path = None
     job.pdf_folder = None
     job.static_attachment_path = None
     job.log_path = None
@@ -632,10 +616,10 @@ def _patched_to_response(self) -> JobResponse:
         candidate_count=count,
         columns=self.columns,
         template_id=self.template_id,
-        is_allocated=self.is_allocated,
         job_mode=self.job_mode,
         email_subject=self.email_subject,
         email_body=self.email_body,
+        sms_body=self.sms_body,
         tasks=self.tasks,
     )
 

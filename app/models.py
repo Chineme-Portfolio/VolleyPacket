@@ -64,10 +64,6 @@ class AttachTemplateRequest(BaseModel):
     template: Optional[TemplateConfig] = None
 
 
-class SendSMSRequest(BaseModel):
-    detailed: bool = False
-
-
 class JobResponse(BaseModel):
     job_id: str
     status: str
@@ -75,8 +71,8 @@ class JobResponse(BaseModel):
     candidate_count: int = 0
     columns: list[str] = []
     template_id: Optional[str] = None
-    is_allocated: bool = False
     job_mode: str = "dynamic_pdf"  # "dynamic_pdf", "static_attachment", "email_only"
     email_subject: str = ""
     email_body: str = ""
+    sms_body: str = ""
     tasks: dict[str, TaskStatus] = {}

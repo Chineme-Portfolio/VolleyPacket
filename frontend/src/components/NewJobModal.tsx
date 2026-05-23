@@ -15,7 +15,6 @@ export default function NewJobModal({ onClose, onCreated }: NewJobModalProps) {
 
   const [selectedTemplate, setSelectedTemplate] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  const [isAllocated, setIsAllocated] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -54,7 +53,7 @@ export default function NewJobModal({ onClose, onCreated }: NewJobModalProps) {
     setError("");
 
     try {
-      const job = await createJob(file, isAllocated);
+      const job = await createJob(file);
       await attachTemplate(job.job_id, selectedTemplate);
       onCreated(job.job_id);
     } catch (err) {
@@ -131,20 +130,6 @@ export default function NewJobModal({ onClose, onCreated }: NewJobModalProps) {
               )}
             </button>
           </div>
-
-          {/* Pre-allocated checkbox */}
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={isAllocated}
-              onChange={(e) => setIsAllocated(e.target.checked)}
-              className="w-4 h-4 rounded border-gray-300 text-green-700 focus:ring-green-700"
-            />
-            <div>
-              <span className="text-sm font-medium text-gray-700">Data is pre-allocated</span>
-              <p className="text-xs text-gray-400">Check if halls/times are already assigned</p>
-            </div>
-          </label>
 
           {/* Template select */}
           <div>

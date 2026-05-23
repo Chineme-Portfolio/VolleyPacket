@@ -29,32 +29,15 @@ def normalize_phone(raw):
     return list(dict.fromkeys(normalized))
 
 
-def build_message(row):
-    return (
-        "Rivers State Government & Osalasi Company Limited\n"
-        "SUBJECT: ALLOCATION OF COMPUTER-BASED TEST (CBT) EXAMINATION TIMETABLE\n"
-        "Print your Examination Notification Letter from Your Email and Come With it to the exam Center"
-    )
+DEFAULT_SMS_BODY = "Dear {Name}, this is a notification regarding your application. Please check your email for further details."
 
 
-def build_detail_message(row):
-    first_name = str(row.get("Name", "")).strip().split()[0].title()
-    date = pd.to_datetime(row.get("ExamDate", "")).strftime("%a %d %b")
-    time = str(row.get("ExamTime", "")).strip()
-    hall = str(row.get("AssignedHall", "")).strip()
-    exam_no = str(row.get("ExamNo", "")).strip()
-
-    return (
-        f"Dear {first_name}, Rivers State Govt CBT invitation (Osalasi Ltd):\n"
-        f"Exam No: {exam_no}\n"
-        f"Date: {date}\n"
-        f"Exam Time: {time}\n"
-        f"Hall: {hall}\n"
-        f"Venue: ICTC, Ignatius Ajuru Uni of Education, Rumuolumeni, Port Harcourt.\n"
-        f"Arrive 1hr early. Bring valid ID. Phones prohibited.\n"
-        f"Enquiries: +234 803 451 3313\n"
-        f"-Osalasi"
-    )
+def render_sms(template: str, row: dict) -> str:
+    """Replace {Placeholder} tokens in SMS body with row values."""
+    message = template
+    for key, val in row.items():
+        message = message.replace(f"{{{key}}}", str(val))
+    return message
 
 
 def send_one_sms(phone, message):
@@ -75,10 +58,12 @@ def send_one_sms(phone, message):
         return False, str(e)
 
 
-def run_sms_send(job: Job, detailed: bool = False):
+def run_sms_send(job: Job):
     task = job.tasks["sms"]
     data = job.data
     task.total = len(data)
+
+    sms_template = getattr(job, "sms_body", "") or DEFAULT_SMS_BODY
 
     os.makedirs(config.LOG_FOLDER, exist_ok=True)
     log_path = os.path.join(config.LOG_FOLDER, f"sms_run_{job.timestamp}.csv")
@@ -116,7 +101,7 @@ def run_sms_send(job: Job, detailed: bool = False):
                     task.progress = idx + 1
                     continue
 
-                message = build_detail_message(row_dict) if detailed else build_message(row_dict)
+                message = render_sms(sms_template, row_dict)
 
                 for phone in numbers:
                     success, error = send_one_sms(phone, message)
@@ -145,9 +130,9 @@ def run_sms_send(job: Job, detailed: bool = False):
         job.save()
 
 
-def start_sms_send(job: Job, detailed: bool = False):
+def start_sms_send(job: Job):
     job.tasks["sms"].status = "running"
     job.tasks["sms"].phase = "sending"
     job.status = "running"
-    thread = threading.Thread(target=run_sms_send, args=(job, detailed), daemon=True)
+    thread = threading.Thread(target=run_sms_send, args=(job,), daemon=True)
     thread.start()

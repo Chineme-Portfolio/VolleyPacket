@@ -9,7 +9,8 @@ from pydantic import BaseModel
 
 import pandas as pd
 
-from app.models import AttachTemplateRequest, SendSMSRequest, TemplateConfig
+import re
+from app.models import AttachTemplateRequest, TemplateConfig
 from app.services.jobs import create_job, get_job_for_user, list_jobs_for_user
 from app.services.read_data import load_data
 from app.services.pdf_tasks import start_pdf_generation
@@ -80,7 +81,6 @@ def get_all_jobs(user: UserRow = Depends(get_current_user)):
 @router.post("")
 async def create_new_job(
     candidate_file: UploadFile = File(...),
-    is_allocated: bool = Form(False),
     user: UserRow = Depends(get_current_user),
 ):
     import logging
@@ -100,18 +100,12 @@ async def create_new_job(
     store.save_local_file(save_path)
 
     try:
-        if is_allocated:
-            data = pd.read_excel(save_path) if ext != ".csv" else pd.read_csv(save_path)
-            data = data.fillna("")
-        else:
-            data = load_data(save_path)
+        data = load_data(save_path)
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Failed to read file: {e}")
 
     try:
         job = create_job(candidate_file=candidate_file.filename, data=data, owner_id=user.id)
-        job.is_allocated = is_allocated
-        job.save()
     except Exception as e:
         logger.exception(f"Failed to create job: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to create job: {e}")
@@ -188,7 +182,6 @@ def resume_task(job_id: str, task_name: str, user: UserRow = Depends(get_current
 async def reupload_data(
     job_id: str,
     candidate_file: UploadFile = File(...),
-    is_allocated: bool = Form(False),
     user: UserRow = Depends(get_current_user),
 ):
     job = _get_job_or_404(job_id, user)
@@ -214,11 +207,7 @@ async def reupload_data(
     store.save_local_file(save_path)
 
     try:
-        if is_allocated:
-            data = pd.read_excel(save_path) if ext != ".csv" else pd.read_csv(save_path)
-            data = data.fillna("")
-        else:
-            data = load_data(save_path)
+        data = load_data(save_path)
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Failed to read file: {e}")
 
@@ -226,8 +215,6 @@ async def reupload_data(
     job.data = data
     job.columns = list(data.columns)
     job.candidate_file = candidate_file.filename
-    job.is_allocated = is_allocated
-    job.allocated_path = None
     job.status = "created"
     job.reset_tasks()
     job.save(include_data=True)
@@ -317,29 +304,112 @@ def set_email_content(job_id: str, req: EmailContentRequest, user: UserRow = Dep
     return {"message": "Email content saved"}
 
 
-# --- ALLOCATE ---
+# --- COLUMN MAPPING ---
 
-@router.post("/{job_id}/allocate")
-def allocate_job(job_id: str, user: UserRow = Depends(get_current_user)):
+def _fuzzy_match_columns(placeholders: list[str], data_columns: list[str]) -> dict[str, str | None]:
+    """Try to auto-match template placeholders to data columns.
+    Returns {placeholder: matched_column_or_None}."""
+
+    def normalize(s: str) -> str:
+        return re.sub(r'[\s_\-]+', '', s).lower()
+
+    mapping: dict[str, str | None] = {}
+    used_columns: set[str] = set()
+
+    for ph in placeholders:
+        ph_norm = normalize(ph)
+        best_match = None
+
+        # Exact normalized match
+        for col in data_columns:
+            if col in used_columns:
+                continue
+            if normalize(col) == ph_norm:
+                best_match = col
+                break
+
+        # Substring match (placeholder contained in column or vice versa)
+        if not best_match:
+            for col in data_columns:
+                if col in used_columns:
+                    continue
+                col_norm = normalize(col)
+                if ph_norm in col_norm or col_norm in ph_norm:
+                    best_match = col
+                    break
+
+        mapping[ph] = best_match
+        if best_match:
+            used_columns.add(best_match)
+
+    return mapping
+
+
+@router.get("/{job_id}/column-mapping")
+def get_column_mapping(job_id: str, user: UserRow = Depends(get_current_user)):
+    """Return auto-matched and unmatched placeholders vs data columns."""
     job = _get_job_or_404(job_id, user)
 
-    if job.is_allocated:
-        raise HTTPException(status_code=409, detail="Data is already allocated")
+    if not job.template:
+        raise HTTPException(status_code=400, detail="No template attached")
 
-    if "ExamDate" not in job.columns:
-        raise HTTPException(status_code=422, detail="Data missing 'ExamDate' column — required for allocation")
+    placeholders = job.template.placeholders or []
+    mapping = _fuzzy_match_columns(placeholders, job.columns)
 
-    try:
-        job.allocate()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Allocation failed: {e}")
+    auto_matched = {k: v for k, v in mapping.items() if v is not None}
+    unmatched = [k for k, v in mapping.items() if v is None]
 
     return {
-        "message": "Allocation complete",
-        "allocated_path": job.allocated_path,
+        "placeholders": placeholders,
         "columns": job.columns,
-        "candidate_count": len(job.data),
+        "auto_matched": auto_matched,
+        "unmatched": unmatched,
     }
+
+
+class ColumnMappingRequest(BaseModel):
+    mapping: dict[str, str]  # {placeholder_name: data_column_name}
+
+
+@router.post("/{job_id}/column-mapping")
+def apply_column_mapping(job_id: str, req: ColumnMappingRequest, user: UserRow = Depends(get_current_user)):
+    """Rename data columns to match template placeholders."""
+    job = _get_job_or_404(job_id, user)
+
+    # Block if tasks are running
+    running = [k for k, t in job.tasks.items() if t.status == "running"]
+    if running:
+        raise HTTPException(status_code=409, detail=f"Cannot remap while tasks are running: {running}")
+
+    # Build rename map: {old_column_name: new_placeholder_name}
+    rename_map = {}
+    for placeholder, column in req.mapping.items():
+        if column in job.columns and column != placeholder:
+            rename_map[column] = placeholder
+
+    if rename_map:
+        job.data = job.data.rename(columns=rename_map)
+        job.columns = list(job.data.columns)
+        job.save(include_data=True)
+
+    return {
+        "message": f"Mapped {len(rename_map)} columns",
+        "columns": job.columns,
+    }
+
+
+# --- SET SMS CONTENT ---
+
+class SmsContentRequest(BaseModel):
+    body: str  # Plain text with {Name}, {ExamNo} placeholders
+
+
+@router.post("/{job_id}/sms-content")
+def set_sms_content(job_id: str, req: SmsContentRequest, user: UserRow = Depends(get_current_user)):
+    job = _get_job_or_404(job_id, user)
+    job.sms_body = req.body
+    job.save()
+    return {"message": "SMS content saved"}
 
 
 # --- GENERATE PDFs ---
@@ -441,7 +511,7 @@ def get_email_status(job_id: str, user: UserRow = Depends(get_current_user)):
 # --- SEND SMS ---
 
 @router.post("/{job_id}/sms/send")
-def send_sms(job_id: str, request: SendSMSRequest = SendSMSRequest(), user: UserRow = Depends(get_current_user)):
+def send_sms(job_id: str, user: UserRow = Depends(get_current_user)):
     job = _get_job_or_404(job_id, user)
     # SMS needs a phone number column
     phone_cols = [c for c in job.columns if c.lower() in ("phone", "phonenumber", "phone_number", "mobile", "tel")]
@@ -451,7 +521,7 @@ def send_sms(job_id: str, request: SendSMSRequest = SendSMSRequest(), user: User
     if job.tasks["sms"].status == "running":
         raise HTTPException(status_code=409, detail="SMS send already running")
 
-    start_sms_send(job, detailed=request.detailed)
+    start_sms_send(job)
     return {"message": "SMS send started", "total": job.tasks["sms"].total}
 
 

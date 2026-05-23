@@ -6,11 +6,13 @@ import Link from "next/link";
 import JobLogViewer from "@/components/JobLogViewer";
 import JobModeSelector from "@/components/JobModeSelector";
 import EmailComposer from "@/components/EmailComposer";
+import SmsComposer from "@/components/SmsComposer";
+import ColumnMapper from "@/components/ColumnMapper";
+import TemplateSelector from "@/components/TemplateSelector";
 import {
   getJob,
   cancelJob,
   deleteJob,
-  allocateJob,
   startPdfs,
   startEmails,
   startSms,
@@ -22,6 +24,7 @@ import {
   getPdfDownloadUrl,
   getReportUrl,
   downloadFile,
+  getEmailProviderStatus,
   Job,
   TaskStatus,
 } from "@/lib/api";
@@ -57,7 +60,7 @@ export default function JobDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [smsDetailed, setSmsDetailed] = useState(false);
+  const [emailConfigured, setEmailConfigured] = useState<boolean | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollActiveRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -97,6 +100,10 @@ export default function JobDetailPage() {
 
   useEffect(() => {
     loadJob();
+    // Check email provider status
+    getEmailProviderStatus()
+      .then((status) => setEmailConfigured(status.is_configured))
+      .catch(() => setEmailConfigured(false));
     return () => {
       if (pollRef.current) {
         clearInterval(pollRef.current);
@@ -147,8 +154,6 @@ export default function JobDetailPage() {
 
   const isTerminal = job.status === "cancelled" || job.status === "failed";
   const jobMode = job.job_mode || "dynamic_pdf";
-  const hasExamDate = job.columns?.includes("ExamDate");
-  const canAllocate = hasExamDate && !job.is_allocated && !isTerminal;
   const canStartPdfs = job.template_id && job.tasks?.pdfs?.status !== "running";
   const pdfsComplete = job.tasks?.pdfs?.status === "complete";
   const emailsComplete = job.tasks?.emails?.status === "complete";
@@ -173,7 +178,7 @@ export default function JobDetailPage() {
             </span>
           </div>
           <p className="text-sm text-gray-500 mt-1">
-            {job.candidate_count} recipients{job.is_allocated ? " · Allocated" : ""}
+            {job.candidate_count} recipients
           </p>
           <p className="text-xs text-gray-400 mt-0.5 truncate">ID: {job.job_id}</p>
         </div>
@@ -231,20 +236,48 @@ export default function JobDetailPage() {
         </div>
       )}
 
-      {/* Allocate banner */}
-      {canAllocate && (
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-blue-50 border border-blue-100 rounded-2xl px-4 sm:px-5 py-4 mb-6">
-          <div>
-            <p className="text-sm font-medium text-blue-900">Data needs allocation</p>
-            <p className="text-xs text-blue-700 mt-0.5">Assign combinations and time slots to recipients before generating PDFs.</p>
+      {/* Email provider warning */}
+      {emailConfigured === false && !isTerminal && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-amber-50 border border-amber-100 rounded-2xl px-4 sm:px-5 py-4 mb-6">
+          <div className="flex items-center gap-3">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#b45309" strokeWidth="2">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <path d="M12 9v4M12 17h.01" />
+            </svg>
+            <div>
+              <p className="text-sm font-medium text-amber-900">Email provider not configured</p>
+              <p className="text-xs text-amber-700 mt-0.5">Set up an email provider before sending emails.</p>
+            </div>
           </div>
-          <button
-            onClick={() => doAction("allocate", () => allocateJob(jobId))}
-            disabled={actionLoading === "allocate"}
-            className="px-5 py-2 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 self-start sm:self-auto flex-shrink-0"
+          <Link
+            href="/settings/email"
+            className="px-4 py-2 text-sm font-medium text-amber-800 bg-white border border-amber-200 rounded-xl hover:bg-amber-50 transition-colors self-start sm:self-auto flex-shrink-0"
           >
-            {actionLoading === "allocate" ? "Allocating..." : "Allocate Now"}
-          </button>
+            Configure Email
+          </Link>
+        </div>
+      )}
+
+      {/* Template selector */}
+      {!isTerminal && (
+        <div className="mb-6">
+          <TemplateSelector
+            jobId={jobId}
+            currentTemplateId={job.template_id}
+            disabled={hasRunning}
+            onChanged={() => loadJob()}
+          />
+        </div>
+      )}
+
+      {/* Column mapping (shows only when template has unmatched placeholders) */}
+      {!isTerminal && job.template_id && (
+        <div className="mb-6">
+          <ColumnMapper
+            jobId={jobId}
+            columns={job.columns}
+            onMapped={() => loadJob()}
+          />
         </div>
       )}
 
@@ -275,6 +308,18 @@ export default function JobDetailPage() {
         </div>
       )}
 
+      {/* SMS composer */}
+      {!isTerminal && (
+        <div className="mb-6">
+          <SmsComposer
+            jobId={jobId}
+            columns={job.columns}
+            initialBody={job.sms_body || ""}
+            onSaved={() => loadJob()}
+          />
+        </div>
+      )}
+
       {/* Task panels */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
         {(["pdfs", "emails", "sms", "photos"] as const).map((taskKey) => {
@@ -296,7 +341,6 @@ export default function JobDetailPage() {
             if (jobMode === "dynamic_pdf") {
               canStart = !!pdfsComplete && !isRunning && !isComplete;
             } else {
-              // email_only or static_attachment: can start immediately
               canStart = !isRunning && !isComplete;
             }
           }
@@ -345,31 +389,18 @@ export default function JobDetailPage() {
               {/* Actions */}
               <div className="flex items-center gap-2 mt-4">
                 {canStart && !isTerminal && (
-                  <>
-                    {taskKey === "sms" && (
-                      <label className="flex items-center gap-1.5 text-xs text-gray-600 mr-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={smsDetailed}
-                          onChange={(e) => setSmsDetailed(e.target.checked)}
-                          className="w-3.5 h-3.5 rounded border-gray-300 text-green-700"
-                        />
-                        Detailed
-                      </label>
-                    )}
-                    <button
-                      onClick={() => doAction(`start-${taskKey}`, () => {
-                        if (taskKey === "pdfs") return startPdfs(jobId);
-                        if (taskKey === "emails") return startEmails(jobId);
-                        if (taskKey === "sms") return startSms(jobId, smsDetailed);
-                        return startPhotos(jobId);
-                      })}
-                      disabled={!!actionLoading}
-                      className="flex-1 px-4 py-2 text-sm font-medium text-white bg-green-800 rounded-xl hover:bg-green-900 transition-colors disabled:opacity-50"
-                    >
-                      {actionLoading === `start-${taskKey}` ? "Starting..." : meta.startLabel}
-                    </button>
-                  </>
+                  <button
+                    onClick={() => doAction(`start-${taskKey}`, () => {
+                      if (taskKey === "pdfs") return startPdfs(jobId);
+                      if (taskKey === "emails") return startEmails(jobId);
+                      if (taskKey === "sms") return startSms(jobId);
+                      return startPhotos(jobId);
+                    })}
+                    disabled={!!actionLoading}
+                    className="flex-1 px-4 py-2 text-sm font-medium text-white bg-green-800 rounded-xl hover:bg-green-900 transition-colors disabled:opacity-50"
+                  >
+                    {actionLoading === `start-${taskKey}` ? "Starting..." : meta.startLabel}
+                  </button>
                 )}
 
                 {isRunning && !isPaused && (

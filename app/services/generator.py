@@ -28,10 +28,23 @@ def download_photo(url, temp_folder):
     file_id = extract_file_id(url)
     if not file_id:
         return None
+
+    # Return cached if already downloaded
+    local_path = os.path.join(temp_folder, f"{file_id}.jpg")
+    if os.path.exists(local_path):
+        return local_path
+
     try:
         download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
-        local_path = os.path.join(temp_folder, f"{file_id}.jpg")
-        urllib.request.urlretrieve(download_url, local_path)
+        req = urllib.request.Request(download_url)
+        with urllib.request.urlopen(req, timeout=30) as response:
+            content_type = response.headers.get("Content-Type", "")
+            if "text/html" in content_type:
+                return None  # Rate-limited or CAPTCHA
+            data = response.read()
+
+        with open(local_path, "wb") as f:
+            f.write(data)
 
         with Image.open(local_path) as img:
             img = ImageOps.exif_transpose(img)
@@ -43,4 +56,9 @@ def download_photo(url, temp_folder):
 
         return local_path
     except Exception:
+        if os.path.exists(local_path):
+            try:
+                os.remove(local_path)
+            except Exception:
+                pass
         return None
