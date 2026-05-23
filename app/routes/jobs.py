@@ -10,7 +10,7 @@ from pydantic import BaseModel
 import pandas as pd
 
 from app.models import AttachTemplateRequest, SendSMSRequest, TemplateConfig
-from app.services.jobs import create_job, get_job, get_job_for_user, list_jobs, list_jobs_for_user
+from app.services.jobs import create_job, get_job_for_user, list_jobs_for_user
 from app.services.read_data import load_data
 from app.services.pdf_tasks import start_pdf_generation
 from app.services.email_tasks import start_email_send

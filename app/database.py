@@ -71,6 +71,32 @@ class AIUsageRow(Base):
     count = Column(Integer, nullable=False, default=0)
 
 
+class JobRow(Base):
+    __tablename__ = "jobs"
+
+    id = Column(String, primary_key=True)  # job_id (8-char UUID)
+    owner_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    status = Column(String, nullable=False, default="created")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    timestamp = Column(String, nullable=False)  # "YYYYMMDD_HHMMSS" for file naming
+
+    candidate_file = Column(String, nullable=False)  # original upload filename
+    candidate_count = Column(Integer, nullable=False, default=0)
+    columns_json = Column(Text, nullable=False, default="[]")  # JSON array of column names
+    is_allocated = Column(Boolean, nullable=False, default=False)
+
+    template_id = Column(String, nullable=True)
+    job_mode = Column(String, nullable=False, default="dynamic_pdf")
+    email_subject = Column(String, nullable=False, default="")
+    email_body = Column(Text, nullable=False, default="")
+
+    cancelled = Column(Boolean, nullable=False, default=False)
+    paused_json = Column(Text, nullable=False, default='{"pdfs":false,"emails":false,"sms":false,"photos":false}')
+    tasks_json = Column(Text, nullable=False, default='{}')  # JSON of TaskStatus dicts
+
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class TemplateRow(Base):
     __tablename__ = "templates"
 

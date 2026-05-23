@@ -15,7 +15,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.routes import templates, upload, generate, jobs
 from app.routes import auth, email_settings, billing, ai_email
-from app.services.jobs import load_all_jobs
 from app.database import init_db
 from app.middleware import RequestLoggingMiddleware
 from app import config
@@ -31,10 +30,7 @@ async def lifespan(app: FastAPI):
         os.makedirs(folder, exist_ok=True)
 
     init_db()
-    logger.info("Database initialized")
-
-    load_all_jobs()
-    logger.info("Jobs loaded")
+    logger.info("Database initialized — jobs load on demand from DB")
 
     yield
 

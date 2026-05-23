@@ -1,3 +1,11 @@
+"""
+Job management — DB-backed with in-memory cache for running jobs.
+
+Source of truth: PostgreSQL/SQLite (JobRow table)
+Files (spreadsheets, PDFs, zips): S3 or local filesystem via storage layer
+In-memory cache: only for jobs with active background tasks (real-time progress)
+"""
+
 import os
 import json
 import uuid
@@ -155,121 +163,151 @@ class Job:
             columns=self.columns,
             template_id=self.template_id,
             is_allocated=self.is_allocated,
-            job_mode=getattr(self, "job_mode", "dynamic_pdf"),
-            email_subject=getattr(self, "email_subject", ""),
-            email_body=getattr(self, "email_body", ""),
+            job_mode=self.job_mode,
+            email_subject=self.email_subject,
+            email_body=self.email_body,
             tasks=self.tasks,
         )
 
-    # --- Persistence ---
-
-    @property
-    def _job_folder(self) -> str:
-        return os.path.join(config.JOBS_FOLDER, self.job_id)
-
-    def to_dict(self) -> dict:
-        return {
-            "job_id": self.job_id,
-            "owner_id": getattr(self, "owner_id", ""),
-            "status": self.status,
-            "created_at": self.created_at.isoformat(),
-            "timestamp": self.timestamp,
-            "candidate_file": self.candidate_file,
-            "columns": self.columns,
-            "is_allocated": self.is_allocated,
-            "allocated_path": self.allocated_path,
-            "template_id": self.template_id,
-            "pdf_folder": self.pdf_folder,
-            "log_path": self.log_path,
-            "cancelled": self.cancelled,
-            "paused": self.paused,
-            "tasks": {k: v.model_dump() for k, v in self.tasks.items()},
-            "job_mode": getattr(self, "job_mode", "dynamic_pdf"),
-            "static_attachment_path": getattr(self, "static_attachment_path", None),
-            "email_subject": getattr(self, "email_subject", ""),
-            "email_body": getattr(self, "email_body", ""),
-        }
+    # --- Database persistence ---
 
     def save(self, include_data=False):
-        # Always save to JSON files (local dev / backup)
-        folder = self._job_folder
+        """Persist job metadata to database and optionally save data files."""
+        from app.database import get_session, JobRow
+
+        session = get_session()
+        try:
+            row = session.get(JobRow, self.job_id)
+            if not row:
+                row = JobRow(id=self.job_id)
+                session.add(row)
+
+            row.owner_id = self.owner_id
+            row.status = self.status
+            row.created_at = self.created_at
+            row.timestamp = self.timestamp
+            row.candidate_file = self.candidate_file
+            row.candidate_count = len(self.data)
+            row.columns_json = json.dumps(self.columns)
+            row.is_allocated = self.is_allocated
+            row.template_id = self.template_id
+            row.job_mode = self.job_mode
+            row.email_subject = self.email_subject
+            row.email_body = self.email_body
+            row.cancelled = self.cancelled
+            row.paused_json = json.dumps(self.paused)
+            row.tasks_json = json.dumps({k: v.model_dump() for k, v in self.tasks.items()})
+
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Failed to save job {self.job_id} to DB: {e}")
+            raise
+        finally:
+            session.close()
+
+        # Save data files to storage (S3 or local)
+        if include_data:
+            self._save_data_files()
+
+    def _save_data_files(self):
+        """Save DataFrame files to storage."""
+        folder = os.path.join(config.JOBS_FOLDER, self.job_id)
         os.makedirs(folder, exist_ok=True)
 
-        job_json_path = os.path.join(folder, "job.json")
-        with open(job_json_path, "w") as f:
-            json.dump(self.to_dict(), f, indent=2)
-        store.save_local_file(job_json_path)
+        data_path = os.path.join(folder, "data.xlsx")
+        self.data.to_excel(data_path, index=False)
+        store.save_local_file(data_path)
 
-        if include_data:
-            data_path = os.path.join(folder, "data.xlsx")
-            self.data.to_excel(data_path, index=False)
-            store.save_local_file(data_path)
-            if self.valid_data is not None:
-                valid_path = os.path.join(folder, "valid_data.xlsx")
-                self.valid_data.to_excel(valid_path, index=False)
-                store.save_local_file(valid_path)
-            if self.invalid_data is not None:
-                invalid_path = os.path.join(folder, "invalid_data.xlsx")
-                self.invalid_data.to_excel(invalid_path, index=False)
-                store.save_local_file(invalid_path)
+        if self.valid_data is not None:
+            valid_path = os.path.join(folder, "valid_data.xlsx")
+            self.valid_data.to_excel(valid_path, index=False)
+            store.save_local_file(valid_path)
+
+        if self.invalid_data is not None:
+            invalid_path = os.path.join(folder, "invalid_data.xlsx")
+            self.invalid_data.to_excel(invalid_path, index=False)
+            store.save_local_file(invalid_path)
 
     @classmethod
-    def from_folder(cls, folder_path: str) -> "Job":
+    def from_db_row(cls, row) -> "Job":
+        """Reconstruct a Job from a JobRow database record."""
         from app.services.storage import _key_from_local
-        # Ensure job files are available locally (downloads from S3 if needed)
-        job_json_key = _key_from_local(os.path.join(folder_path, "job.json"))
-        store.ensure_local(job_json_key)
-        data_key = _key_from_local(os.path.join(folder_path, "data.xlsx"))
-        store.ensure_local(data_key)
-
-        with open(os.path.join(folder_path, "job.json"), "r") as f:
-            d = json.load(f)
-
-        data = pd.read_excel(os.path.join(folder_path, "data.xlsx"))
-        data = data.fillna("")
 
         job = cls.__new__(cls)
-        job.job_id = d["job_id"]
-        job.owner_id = d.get("owner_id", "")
-        job.status = d["status"]
-        job.created_at = datetime.fromisoformat(d["created_at"])
-        job.timestamp = d["timestamp"]
-        job.candidate_file = d["candidate_file"]
-        job.data = data
-        job.columns = d["columns"]
-        job.is_allocated = d["is_allocated"]
-        job.allocated_path = d.get("allocated_path")
-        job.template_id = d.get("template_id")
-        job.pdf_folder = d.get("pdf_folder")
-        job.log_path = d.get("log_path")
-        job.cancelled = d.get("cancelled", False)
-        job.paused = d.get("paused", {k: False for k in ("pdfs", "emails", "sms", "photos")})
+        job.job_id = row.id
+        job.owner_id = row.owner_id
+        job.status = row.status
+        job.created_at = row.created_at
+        job.timestamp = row.timestamp
+        job.candidate_file = row.candidate_file
+        job.columns = json.loads(row.columns_json)
+        job.is_allocated = row.is_allocated
+        job.template_id = row.template_id
+        job.job_mode = row.job_mode
+        job.email_subject = row.email_subject
+        job.email_body = row.email_body
+        job.cancelled = row.cancelled
+        job.paused = json.loads(row.paused_json)
         job._lock = threading.Lock()
 
-        job.tasks = {k: TaskStatus(**v) for k, v in d.get("tasks", {}).items()}
+        # Restore task statuses
+        tasks_data = json.loads(row.tasks_json) if row.tasks_json else {}
+        job.tasks = {}
+        for key in ("pdfs", "emails", "sms", "photos"):
+            if key in tasks_data:
+                job.tasks[key] = TaskStatus(**tasks_data[key])
+            else:
+                job.tasks[key] = TaskStatus()
 
-        valid_path = os.path.join(folder_path, "valid_data.xlsx")
-        job.valid_data = pd.read_excel(valid_path).fillna("") if os.path.isfile(valid_path) else None
-        invalid_path = os.path.join(folder_path, "invalid_data.xlsx")
-        job.invalid_data = pd.read_excel(invalid_path).fillna("") if os.path.isfile(invalid_path) else None
+        # Mark any "running" tasks as interrupted (server restarted)
+        for task in job.tasks.values():
+            if task.status == "running":
+                task.status = "interrupted"
+                task.phase = "interrupted"
 
-        job.job_mode = d.get("job_mode", "dynamic_pdf")
-        job.static_attachment_path = d.get("static_attachment_path")
-        job.email_subject = d.get("email_subject", "")
-        job.email_body = d.get("email_body", "")
+        # Load DataFrame from storage
+        folder = os.path.join(config.JOBS_FOLDER, job.job_id)
+        data_key = _key_from_local(os.path.join(folder, "data.xlsx"))
+        try:
+            local_path = store.ensure_local(data_key)
+            job.data = pd.read_excel(local_path).fillna("")
+        except Exception as e:
+            logger.warning(f"Could not load data file for job {job.job_id}: {e}")
+            job.data = pd.DataFrame(columns=job.columns)
 
+        # Load valid/invalid data if they exist
+        valid_key = _key_from_local(os.path.join(folder, "valid_data.xlsx"))
+        try:
+            valid_path = store.ensure_local(valid_key)
+            job.valid_data = pd.read_excel(valid_path).fillna("")
+        except Exception:
+            job.valid_data = None
+
+        invalid_key = _key_from_local(os.path.join(folder, "invalid_data.xlsx"))
+        try:
+            invalid_path = store.ensure_local(invalid_key)
+            job.invalid_data = pd.read_excel(invalid_path).fillna("")
+        except Exception:
+            job.invalid_data = None
+
+        # Load template
         job.template = None
+        job.allocated_path = None
+        job.pdf_folder = None
+        job.static_attachment_path = None
+        job.log_path = None
+
         if job.template_id:
-            # Try database first, then fall back to file
             try:
-                from app.database import get_session, TemplateRow
-                session = get_session()
+                from app.database import get_session as _get_session, TemplateRow
+                s = _get_session()
                 try:
-                    row = session.get(TemplateRow, job.template_id)
-                    if row:
-                        job.template = TemplateConfig(**json.loads(row.config_json))
+                    tpl_row = s.get(TemplateRow, job.template_id)
+                    if tpl_row:
+                        job.template = TemplateConfig(**json.loads(tpl_row.config_json))
                 finally:
-                    session.close()
+                    s.close()
             except Exception:
                 pass
 
@@ -278,11 +316,6 @@ class Job:
                 if os.path.isfile(tpl_path):
                     with open(tpl_path, "r") as f:
                         job.template = TemplateConfig(**json.load(f))
-
-        for task in job.tasks.values():
-            if task.status == "running":
-                task.status = "interrupted"
-                task.phase = "interrupted"
 
         return job
 
@@ -369,67 +402,183 @@ class Job:
         return self.pdf_folder
 
 
-# --- JOB STORE ---
-_jobs: dict[str, Job] = {}
+# --- JOB STORE (DB-backed with in-memory cache for running jobs) ---
+
+_cache: dict[str, Job] = {}
+_cache_lock = threading.Lock()
+
+
+def _cache_job(job: Job):
+    """Add a job to the in-memory cache."""
+    with _cache_lock:
+        _cache[job.job_id] = job
+
+
+def _uncache_job(job_id: str):
+    """Remove a job from the cache."""
+    with _cache_lock:
+        _cache.pop(job_id, None)
 
 
 def create_job(candidate_file: str, data: pd.DataFrame, owner_id: str = "") -> Job:
     job_id = str(uuid.uuid4())[:8]
     job = Job(job_id=job_id, candidate_file=candidate_file, data=data, owner_id=owner_id)
-    _jobs[job_id] = job
     job.save(include_data=True)
+    _cache_job(job)
     return job
 
 
 def get_job(job_id: str) -> Job | None:
-    return _jobs.get(job_id)
+    """Get a job by ID — checks cache first, then DB."""
+    # Check cache (running jobs)
+    with _cache_lock:
+        if job_id in _cache:
+            return _cache[job_id]
+
+    # Load from DB
+    return _load_job_from_db(job_id)
 
 
 def get_job_for_user(job_id: str, user_id: str) -> Job | None:
-    """Get a job only if it belongs to the user (or has no owner for legacy jobs)."""
-    job = _jobs.get(job_id)
+    """Get a job only if it belongs to the user."""
+    job = get_job(job_id)
     if not job:
         return None
-    owner = getattr(job, "owner_id", "")
-    if owner and owner != user_id:
+    if job.owner_id and job.owner_id != user_id:
         return None
     return job
 
 
 def list_jobs() -> list[Job]:
-    return list(_jobs.values())
+    """List all jobs from DB (returns lightweight job objects)."""
+    return _list_jobs_from_db()
 
 
 def list_jobs_for_user(user_id: str) -> list[Job]:
-    """List only jobs owned by the user (or legacy unowned jobs)."""
-    return [j for j in _jobs.values() if not getattr(j, "owner_id", "") or j.owner_id == user_id]
+    """List only jobs owned by the user."""
+    return _list_jobs_from_db(user_id=user_id)
 
 
-def load_all_jobs():
-    """Load all jobs from storage (local disk or S3)."""
-    from app.services.storage import _key_from_local
+def _load_job_from_db(job_id: str) -> Job | None:
+    """Load a single job from the database."""
+    from app.database import get_session, JobRow
 
-    # List job folders — check local first, then S3
-    job_dirs = set()
+    session = get_session()
+    try:
+        row = session.get(JobRow, job_id)
+        if not row:
+            return None
+        job = Job.from_db_row(row)
+        _cache_job(job)
+        return job
+    except Exception as e:
+        logger.error(f"Failed to load job {job_id} from DB: {e}")
+        return None
+    finally:
+        session.close()
 
-    if os.path.isdir(config.JOBS_FOLDER):
-        for entry in os.listdir(config.JOBS_FOLDER):
-            folder = os.path.join(config.JOBS_FOLDER, entry)
-            if os.path.isdir(folder):
-                job_dirs.add(entry)
 
-    # Also check S3 for jobs not cached locally
-    s3_keys = store.list_dir("data/jobs")
-    for key in s3_keys:
-        # key like "data/jobs/abc123/job.json"
-        parts = key.split("/")
-        if len(parts) >= 3:
-            job_dirs.add(parts[2])
+def _list_jobs_from_db(user_id: str | None = None) -> list[Job]:
+    """List jobs from the database. Returns Job objects with data loaded."""
+    from app.database import get_session, JobRow
 
-    for entry in job_dirs:
-        folder = os.path.join(config.JOBS_FOLDER, entry)
-        try:
-            job = Job.from_folder(folder)
-            _jobs[job.job_id] = job
-        except Exception as e:
-            print(f"Warning: failed to load job {entry}: {e}")
+    session = get_session()
+    try:
+        query = session.query(JobRow)
+        if user_id:
+            query = query.filter(JobRow.owner_id == user_id)
+        query = query.order_by(JobRow.created_at.desc())
+        rows = query.all()
+
+        jobs = []
+        for row in rows:
+            # Use cached version if available (has live task progress)
+            with _cache_lock:
+                if row.id in _cache:
+                    jobs.append(_cache[row.id])
+                    continue
+
+            # Build a lightweight response without loading DataFrame
+            try:
+                job = _lightweight_job_from_row(row)
+                jobs.append(job)
+            except Exception as e:
+                logger.warning(f"Failed to build job {row.id} from DB: {e}")
+
+        return jobs
+    except Exception as e:
+        logger.error(f"Failed to list jobs from DB: {e}")
+        return []
+    finally:
+        session.close()
+
+
+def _lightweight_job_from_row(row) -> Job:
+    """Build a Job object from a DB row WITHOUT loading the DataFrame.
+    Suitable for list views where we only need metadata."""
+    job = Job.__new__(Job)
+    job.job_id = row.id
+    job.owner_id = row.owner_id
+    job.status = row.status
+    job.created_at = row.created_at
+    job.timestamp = row.timestamp
+    job.candidate_file = row.candidate_file
+    job.columns = json.loads(row.columns_json)
+    job.is_allocated = row.is_allocated
+    job.template_id = row.template_id
+    job.job_mode = row.job_mode
+    job.email_subject = row.email_subject
+    job.email_body = row.email_body
+    job.cancelled = row.cancelled
+    job.paused = json.loads(row.paused_json)
+    job._lock = threading.Lock()
+
+    # Use candidate_count from DB instead of loading DataFrame
+    job.data = pd.DataFrame(columns=job.columns)
+    # Override len(self.data) for to_response
+    job._candidate_count = row.candidate_count
+
+    job.valid_data = None
+    job.invalid_data = None
+    job.template = None
+    job.allocated_path = None
+    job.pdf_folder = None
+    job.static_attachment_path = None
+    job.log_path = None
+
+    # Restore task statuses
+    tasks_data = json.loads(row.tasks_json) if row.tasks_json else {}
+    job.tasks = {}
+    for key in ("pdfs", "emails", "sms", "photos"):
+        if key in tasks_data:
+            job.tasks[key] = TaskStatus(**tasks_data[key])
+        else:
+            job.tasks[key] = TaskStatus()
+
+    return job
+
+
+# Override to_response to use _candidate_count when available
+_original_to_response = Job.to_response
+
+
+def _patched_to_response(self) -> JobResponse:
+    count = getattr(self, "_candidate_count", None)
+    if count is None:
+        count = len(self.data)
+    return JobResponse(
+        job_id=self.job_id,
+        status=self.status,
+        candidate_file=self.candidate_file,
+        candidate_count=count,
+        columns=self.columns,
+        template_id=self.template_id,
+        is_allocated=self.is_allocated,
+        job_mode=self.job_mode,
+        email_subject=self.email_subject,
+        email_body=self.email_body,
+        tasks=self.tasks,
+    )
+
+
+Job.to_response = _patched_to_response
