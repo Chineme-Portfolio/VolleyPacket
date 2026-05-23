@@ -83,6 +83,9 @@ async def create_new_job(
     is_allocated: bool = Form(False),
     user: UserRow = Depends(get_current_user),
 ):
+    import logging
+    logger = logging.getLogger(__name__)
+
     ext = os.path.splitext(candidate_file.filename)[1].lower()
     if ext not in (".xlsx", ".xls", ".csv"):
         raise HTTPException(status_code=400, detail="Candidate file must be .xlsx, .xls, or .csv")
@@ -105,9 +108,13 @@ async def create_new_job(
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Failed to read file: {e}")
 
-    job = create_job(candidate_file=candidate_file.filename, data=data, owner_id=user.id)
-    job.is_allocated = is_allocated
-    job.save()
+    try:
+        job = create_job(candidate_file=candidate_file.filename, data=data, owner_id=user.id)
+        job.is_allocated = is_allocated
+        job.save()
+    except Exception as e:
+        logger.exception(f"Failed to create job: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create job: {e}")
 
     return job.to_response().model_dump()
 
