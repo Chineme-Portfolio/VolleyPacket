@@ -263,22 +263,46 @@ export default function LandingPage() {
             </div>
           </motion.div>
 
-          {/* Right — 3D logo */}
+          {/* Right — product demo video */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 1, delay: 0.3, ease: "easeOut" }}
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.9, delay: 0.3, ease: "easeOut" }}
             className="flex items-center justify-center"
           >
             <div className="relative">
-              <div className="logo-spin-z w-72 h-72 md:w-96 md:h-96 flex items-center justify-center">
-                <LogoIcon3D size={320} className="w-56 h-56 md:w-72 md:h-72" />
+              {/* Browser-style mockup frame */}
+              <div className="rounded-2xl shadow-2xl shadow-green-900/15 border border-gray-200 overflow-hidden bg-gray-100">
+                {/* Browser toolbar */}
+                <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-100 border-b border-gray-200">
+                  <div className="flex gap-1.5">
+                    <div className="w-3 h-3 rounded-full bg-red-400" />
+                    <div className="w-3 h-3 rounded-full bg-yellow-400" />
+                    <div className="w-3 h-3 rounded-full bg-green-400" />
+                  </div>
+                  <div className="flex-1 mx-2">
+                    <div className="bg-white rounded-md px-3 py-1 text-xs text-gray-400 font-medium text-center border border-gray-200">
+                      volleypacket.com
+                    </div>
+                  </div>
+                </div>
+                {/* Video */}
+                <video
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  className="w-full max-w-[520px] block"
+                >
+                  <source src="/demo.mp4" type="video/mp4" />
+                </video>
               </div>
+
               {/* Floating badges */}
               <motion.div
                 animate={{ y: [0, -8, 0] }}
                 transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-                className="absolute -top-4 -right-4 bg-white rounded-2xl shadow-xl px-4 py-3 border border-gray-100"
+                className="absolute -top-4 -right-4 bg-white rounded-2xl shadow-xl px-4 py-3 border border-gray-100 z-10"
               >
                 <p className="text-xs text-gray-400 font-medium">Emails sent</p>
                 <p className="text-xl font-bold text-gray-900">12,847</p>
@@ -286,7 +310,7 @@ export default function LandingPage() {
               <motion.div
                 animate={{ y: [0, 8, 0] }}
                 transition={{ duration: 3.5, repeat: Infinity, ease: "easeInOut", delay: 0.5 }}
-                className="absolute -bottom-4 -left-4 bg-white rounded-2xl shadow-xl px-4 py-3 border border-gray-100"
+                className="absolute -bottom-4 -left-4 bg-white rounded-2xl shadow-xl px-4 py-3 border border-gray-100 z-10"
               >
                 <p className="text-xs text-gray-400 font-medium">Delivery rate</p>
                 <p className="text-xl font-bold text-green-700">99.2%</p>
