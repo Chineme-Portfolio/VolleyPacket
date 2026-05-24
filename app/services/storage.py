@@ -137,7 +137,10 @@ class LocalStorage(StorageBackend):
             return f.read()
 
     def ensure_local(self, key: str) -> str:
-        return _local_path(key)
+        path = _local_path(key)
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"Local file not found: {path}")
+        return path
 
     def exists(self, key: str) -> bool:
         return os.path.exists(_local_path(key))
@@ -443,6 +446,12 @@ def get_storage() -> StorageBackend:
         else:
             _storage = LocalStorage()
             logger.info("Storage backend: local filesystem")
+            # Warn if local storage is used in production (files won't survive deploys)
+            if os.getenv("DATABASE_URL"):
+                logger.warning(
+                    "⚠️  LOCAL storage on a production host — files will be LOST on redeploy! "
+                    "Link an Object Store (Railway) or set S3 env vars to persist data."
+                )
     return _storage
 
 

@@ -297,8 +297,9 @@ class Job:
         try:
             local_path = store.ensure_local(data_key)
             job.data = pd.read_excel(local_path).fillna("")
+            logger.info(f"Loaded data for job {job.job_id}: {len(job.data)} rows from {data_key}")
         except Exception as e:
-            logger.warning(f"Could not load data file for job {job.job_id}: {e}")
+            logger.error(f"FAILED to load data file for job {job.job_id} (key={data_key}): {e}")
             job.data = pd.DataFrame(columns=job.columns)
 
         # Load valid/invalid data if they exist
@@ -306,6 +307,7 @@ class Job:
         try:
             valid_path = store.ensure_local(valid_key)
             job.valid_data = pd.read_excel(valid_path).fillna("")
+            logger.info(f"Loaded valid_data for job {job.job_id}: {len(job.valid_data)} rows")
         except Exception:
             job.valid_data = None
 

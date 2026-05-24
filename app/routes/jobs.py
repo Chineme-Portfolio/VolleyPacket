@@ -501,6 +501,13 @@ def generate_pdfs(job_id: str, user: UserRow = Depends(get_current_user)):
     if job.tasks["pdfs"].status == "running":
         raise HTTPException(status_code=409, detail="PDF generation already running")
 
+    # Check data is loaded
+    if job.data is None or len(job.data) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="No recipient data loaded. The data file may have been lost after a deploy. Please re-upload the spreadsheet.",
+        )
+
     # Validate emails if an Email column exists
     if "Email" in job.columns:
         job.validate_emails()
@@ -578,6 +585,14 @@ def send_emails(job_id: str, user: UserRow = Depends(get_current_user)):
     if job.tasks["emails"].status == "running":
         raise HTTPException(status_code=409, detail="Email send already running")
 
+    # Check data is loaded (survives redeploys via S3)
+    data = job.valid_data if job.valid_data is not None else job.data
+    if data is None or len(data) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="No recipient data loaded. The data file may have been lost after a deploy. Please re-upload the spreadsheet.",
+        )
+
     provider, settings = _get_user_provider(user)
 
     # Clear stop flag before (re)start
@@ -606,6 +621,13 @@ def send_sms(job_id: str, user: UserRow = Depends(get_current_user)):
 
     if job.tasks["sms"].status == "running":
         raise HTTPException(status_code=409, detail="SMS send already running")
+
+    # Check data is loaded
+    if job.data is None or len(job.data) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="No recipient data loaded. The data file may have been lost after a deploy. Please re-upload the spreadsheet.",
+        )
 
     # Clear stop flag before (re)start
     job.stop_flags["sms"] = False
