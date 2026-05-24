@@ -50,7 +50,7 @@ async function fetchTaskStatus(jobId: string, taskKey: string): Promise<TaskStat
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) throw new Error("Failed to fetch status");
-  console.log(res.json(), "response from fetchTaskStatus");
+  console.log(res.json(), "respose from fetchTaskStatus");
   return res.json();
 }
 
@@ -79,7 +79,7 @@ export default function TaskPanel({ jobId, taskKey, initialTask, canStart, isTer
   useEffect(() => {
     if (!isRunning) return;
 
-    const interval = async () => {
+    const interval = setInterval(async () => {
       try {
         const fresh = await fetchTaskStatus(jobId, taskKey);
         setTask(fresh);
@@ -87,9 +87,9 @@ export default function TaskPanel({ jobId, taskKey, initialTask, canStart, isTer
           hasStartedRef.current = true; // keep it marked
         }
       } catch { /* ignore */ }
-    };
-    setInterval(interval, 2000);
+    }, 2000);
 
+    return () => clearInterval(interval);
   }, [isRunning, jobId, taskKey]);
 
   async function handleStart() {
