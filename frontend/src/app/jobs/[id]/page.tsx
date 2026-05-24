@@ -9,24 +9,17 @@ import EmailComposer from "@/components/EmailComposer";
 import SmsComposer from "@/components/SmsComposer";
 import ColumnMapper from "@/components/ColumnMapper";
 import TemplateSelector from "@/components/TemplateSelector";
+import TaskPanel from "@/components/TaskPanel";
 import {
   getJob,
   cancelJob,
   deleteJob,
-  startPdfs,
-  startEmails,
-  startSms,
-  startPhotos,
-  pauseTask,
-  resumeTask,
   reuploadData,
   setJobMode,
-  getPdfDownloadUrl,
   getReportUrl,
   downloadFile,
   getEmailProviderStatus,
   Job,
-  TaskStatus,
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { friendlyError } from "@/lib/errors";
@@ -42,13 +35,6 @@ function statusColor(status: string) {
   };
   return map[status] || "bg-gray-100 text-gray-600";
 }
-
-const TASK_META: Record<string, { label: string; icon: string; startLabel: string }> = {
-  pdfs: { label: "PDF Generation", icon: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8ZM14 2v6h6", startLabel: "Generate PDFs" },
-  emails: { label: "Email Sending", icon: "M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2ZM22 6l-10 7L2 6", startLabel: "Send Emails" },
-  sms: { label: "SMS Sending", icon: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z", startLabel: "Send SMS" },
-  photos: { label: "Photo Download", icon: "M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2zM12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10z", startLabel: "Download Photos" },
-};
 
 export default function JobDetailPage() {
   const params = useParams();
@@ -83,23 +69,6 @@ export default function JobDetailPage() {
       .then((status) => setEmailConfigured(status.is_configured))
       .catch(() => setEmailConfigured(false));
   }, [loadJob]);
-
-  // Derive polling flag from job state
-  const shouldPoll = !!job && Object.values(job.tasks || {}).some((t) => t.status === "running");
-
-  // Polling: starts/stops based on shouldPoll, doesn't re-create on every job update
-  useEffect(() => {
-    if (!shouldPoll) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const fresh = await getJob(jobId);
-        setJob(fresh);
-      } catch { /* ignore poll errors */ }
-    }, 2000);
-
-    return () => clearInterval(interval);
-  }, [shouldPoll, jobId]);
 
   async function doAction(key: string, fn: () => Promise<unknown>) {
     setActionLoading(key);
@@ -142,8 +111,6 @@ export default function JobDetailPage() {
 
   const isTerminal = job.status === "cancelled" || job.status === "failed";
   const jobMode = job.job_mode || "dynamic_pdf";
-  const canStartPdfs = job.template_id && job.tasks?.pdfs?.status !== "running";
-  const pdfsComplete = job.tasks?.pdfs?.status === "complete";
   const emailsComplete = job.tasks?.emails?.status === "complete";
   const hasRunning = Object.values(job.tasks || {}).some((t) => t.status === "running");
 
@@ -308,130 +275,28 @@ export default function JobDetailPage() {
         </div>
       )}
 
-      {/* Task panels */}
+      {/* Task panels — each manages its own polling and state */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
         {(["pdfs", "emails", "sms", "photos"] as const).map((taskKey) => {
-          const task: TaskStatus | undefined = job.tasks?.[taskKey];
-          const meta = TASK_META[taskKey];
+          const task = job.tasks?.[taskKey];
           if (!task) return null;
-
-          const isRunning = task.status === "running";
-          const isPaused = task.phase === "paused";
-          const isComplete = task.status === "complete";
-          const progressPct = task.total > 0 ? Math.round((task.progress / task.total) * 100) : 0;
-
-          // Skip PDF panel if not in dynamic_pdf mode
           if (taskKey === "pdfs" && jobMode !== "dynamic_pdf") return null;
 
           let canStart = false;
-          if (taskKey === "pdfs") canStart = !!canStartPdfs && !isRunning && !isComplete;
-          if (taskKey === "emails") {
-            if (jobMode === "dynamic_pdf") {
-              canStart = !!pdfsComplete && !isRunning && !isComplete;
-            } else {
-              canStart = !isRunning && !isComplete;
-            }
-          }
-          if (taskKey === "sms") canStart = !isRunning && !isComplete;
-          if (taskKey === "photos") canStart = !isRunning && !isComplete;
+          if (taskKey === "pdfs") canStart = !!job.template_id;
+          if (taskKey === "emails") canStart = jobMode !== "dynamic_pdf" || job.tasks?.pdfs?.status === "complete";
+          if (taskKey === "sms") canStart = true;
+          if (taskKey === "photos") canStart = true;
 
           return (
-            <div key={taskKey} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              {/* Task header */}
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isComplete ? "bg-green-50" : isRunning ? "bg-yellow-50" : "bg-gray-50"}`}>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isComplete ? "#047857" : isRunning ? "#b45309" : "#6b7280"} strokeWidth="2">
-                      <path d={meta.icon} />
-                    </svg>
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-semibold text-gray-900">{meta.label}</h3>
-                    <p className="text-xs text-gray-500 capitalize">{isPaused ? "Paused" : task.status}{task.error ? ` — ${task.error}` : ""}</p>
-                  </div>
-                </div>
-                <span className={`text-xs font-medium px-2.5 py-1 rounded-lg capitalize ${statusColor(isPaused ? "running" : task.status)}`}>
-                  {isPaused ? "Paused" : task.status}
-                </span>
-              </div>
-
-              {/* Progress bar */}
-              {(isRunning || isPaused || isComplete) && task.total > 0 && (
-                <div className="mb-4">
-                  <div className="flex items-center justify-between text-xs text-gray-500 mb-1.5">
-                    <span>{task.progress} / {task.total}</span>
-                    <span>{progressPct}%</span>
-                  </div>
-                  <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all duration-500 ${isComplete ? "bg-green-500" : isPaused ? "bg-yellow-400" : "bg-green-600"}`}
-                      style={{ width: `${progressPct}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Stats */}
-              <TaskStats taskKey={taskKey} task={task} />
-
-              {/* Actions */}
-              <div className="flex items-center gap-2 mt-4">
-                {canStart && !isTerminal && (
-                  <button
-                    onClick={() => doAction(`start-${taskKey}`, () => {
-                      if (taskKey === "pdfs") return startPdfs(jobId);
-                      if (taskKey === "emails") return startEmails(jobId);
-                      if (taskKey === "sms") return startSms(jobId);
-                      return startPhotos(jobId);
-                    })}
-                    disabled={!!actionLoading}
-                    className="flex-1 px-4 py-2 text-sm font-medium text-white bg-green-800 rounded-xl hover:bg-green-900 transition-colors disabled:opacity-50"
-                  >
-                    {actionLoading === `start-${taskKey}` ? "Starting..." : meta.startLabel}
-                  </button>
-                )}
-
-                {isRunning && !isPaused && (
-                  <button
-                    onClick={() => doAction(`pause-${taskKey}`, () => pauseTask(jobId, taskKey))}
-                    disabled={!!actionLoading}
-                    className="flex-1 px-4 py-2 text-sm font-medium text-yellow-700 bg-yellow-50 border border-yellow-200 rounded-xl hover:bg-yellow-100 transition-colors disabled:opacity-50"
-                  >
-                    Pause
-                  </button>
-                )}
-
-                {isPaused && (
-                  <button
-                    onClick={() => doAction(`resume-${taskKey}`, () => resumeTask(jobId, taskKey))}
-                    disabled={!!actionLoading}
-                    className="flex-1 px-4 py-2 text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded-xl hover:bg-green-100 transition-colors disabled:opacity-50"
-                  >
-                    Resume
-                  </button>
-                )}
-
-                {taskKey === "pdfs" && isComplete && (
-                  <button
-                    onClick={() => doAction("download-pdfs", () => downloadFile(getPdfDownloadUrl(jobId), `pdfs_${jobId}.zip`))}
-                    disabled={actionLoading === "download-pdfs"}
-                    className="flex-1 px-4 py-2 text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded-xl hover:bg-green-100 transition-colors disabled:opacity-50"
-                  >
-                    {actionLoading === "download-pdfs" ? "Downloading..." : "Download ZIP"}
-                  </button>
-                )}
-
-                {taskKey === "pdfs" && (isRunning || isPaused) && task.progress > 0 && (
-                  <button
-                    onClick={() => doAction("download-partial", () => downloadFile(getPdfDownloadUrl(jobId) + "?partial=true", `pdfs_${jobId}_partial.zip`))}
-                    disabled={actionLoading === "download-partial"}
-                    className="flex-1 px-4 py-2 text-sm font-medium text-gray-600 bg-gray-50 border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors disabled:opacity-50"
-                  >
-                    {actionLoading === "download-partial" ? "Downloading..." : `Download ${task.progress} PDFs so far`}
-                  </button>
-                )}
-              </div>
-            </div>
+            <TaskPanel
+              key={taskKey}
+              jobId={jobId}
+              taskKey={taskKey}
+              initialTask={task}
+              canStart={canStart}
+              isTerminal={isTerminal}
+            />
           );
         })}
       </div>
@@ -468,41 +333,6 @@ export default function JobDetailPage() {
       <div className="mt-6">
         <JobLogViewer jobId={jobId} />
       </div>
-    </div>
-  );
-}
-
-function TaskStats({ taskKey, task }: { taskKey: string; task: TaskStatus }) {
-  const stats: { label: string; value: number }[] = [];
-
-  if (taskKey === "pdfs") {
-    if (task.pdfs_generated) stats.push({ label: "Generated", value: task.pdfs_generated });
-    if (task.filtered_out) stats.push({ label: "Filtered", value: task.filtered_out });
-  }
-  if (taskKey === "emails") {
-    if (task.emails_sent) stats.push({ label: "Sent", value: task.emails_sent });
-    if (task.emails_failed) stats.push({ label: "Failed", value: task.emails_failed });
-  }
-  if (taskKey === "sms") {
-    if (task.sms_sent) stats.push({ label: "Sent", value: task.sms_sent });
-    if (task.sms_failed) stats.push({ label: "Failed", value: task.sms_failed });
-    if (task.sms_skipped) stats.push({ label: "Skipped", value: task.sms_skipped });
-  }
-  if (taskKey === "photos") {
-    if (task.photos_downloaded) stats.push({ label: "Downloaded", value: task.photos_downloaded });
-    if (task.photos_failed) stats.push({ label: "Failed", value: task.photos_failed });
-  }
-
-  if (stats.length === 0) return null;
-
-  return (
-    <div className="flex items-center gap-4">
-      {stats.map((s) => (
-        <div key={s.label} className="text-center">
-          <p className="text-lg font-bold text-gray-900">{s.value}</p>
-          <p className="text-xs text-gray-500">{s.label}</p>
-        </div>
-      ))}
     </div>
   );
 }
