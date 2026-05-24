@@ -197,6 +197,10 @@ export async function resumeTask(jobId: string, task: string): Promise<{ message
   return fetchJSON(`/jobs/${jobId}/${task}/resume`, { method: "POST" });
 }
 
+export async function cancelTask(jobId: string, task: string): Promise<{ message: string }> {
+  return fetchJSON(`/jobs/${jobId}/${task}/cancel`, { method: "POST" });
+}
+
 export async function reuploadData(jobId: string, file: File): Promise<Job> {
   const form = new FormData();
   form.append("candidate_file", file);

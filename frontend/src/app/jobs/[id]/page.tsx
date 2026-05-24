@@ -12,7 +12,6 @@ import TemplateSelector from "@/components/TemplateSelector";
 import TaskPanel from "@/components/TaskPanel";
 import {
   getJob,
-  cancelJob,
   deleteJob,
   reuploadData,
   setJobMode,
@@ -47,6 +46,7 @@ export default function JobDetailPage() {
   const [error, setError] = useState("");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [emailConfigured, setEmailConfigured] = useState<boolean | null>(null);
+  const [availableLogs, setAvailableLogs] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadJob = useCallback(async () => {
@@ -69,6 +69,68 @@ export default function JobDetailPage() {
       .then((status) => setEmailConfigured(status.is_configured))
       .catch(() => setEmailConfigured(false));
   }, [loadJob]);
+
+  // SSE stream for live task updates and log availability
+  useEffect(() => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("vp_token") : null;
+    if (!token) return;
+
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    let abortController = new AbortController();
+    let reconnectTimer: ReturnType<typeof setTimeout>;
+
+    async function connect() {
+      try {
+        const res = await fetch(`${apiBase}/jobs/${jobId}/stream`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: abortController.signal,
+        });
+        if (!res.ok || !res.body) return;
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            try {
+              const event = JSON.parse(line.slice(6));
+              if (event.error) continue;
+
+              setJob((prev) => {
+                if (!prev) return prev;
+                return { ...prev, status: event.job_status, tasks: event.tasks };
+              });
+              setAvailableLogs(event.available_logs || []);
+            } catch {
+              // ignore malformed SSE lines
+            }
+          }
+        }
+      } catch (err) {
+        if (abortController.signal.aborted) return;
+      }
+      // Reconnect after 5s on disconnect
+      if (!abortController.signal.aborted) {
+        reconnectTimer = setTimeout(connect, 5000);
+      }
+    }
+
+    connect();
+
+    return () => {
+      abortController.abort();
+      clearTimeout(reconnectTimer);
+    };
+  }, [jobId]);
 
   async function doAction(key: string, fn: () => Promise<unknown>) {
     setActionLoading(key);
@@ -148,17 +210,6 @@ export default function JobDetailPage() {
               className="px-3 sm:px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50"
             >
               Re-upload
-            </button>
-          )}
-
-          {/* Cancel */}
-          {!isTerminal && (
-            <button
-              onClick={() => doAction("cancel", () => cancelJob(jobId))}
-              disabled={actionLoading === "cancel"}
-              className="px-3 sm:px-4 py-2 text-sm font-medium text-red-600 bg-white border border-red-200 rounded-xl hover:bg-red-50 transition-colors disabled:opacity-50"
-            >
-              {actionLoading === "cancel" ? "Cancelling..." : "Cancel"}
             </button>
           )}
 
@@ -331,7 +382,7 @@ export default function JobDetailPage() {
 
       {/* Job Logs */}
       <div className="mt-6">
-        <JobLogViewer jobId={jobId} />
+        <JobLogViewer jobId={jobId} availableLogs={availableLogs} />
       </div>
     </div>
   );

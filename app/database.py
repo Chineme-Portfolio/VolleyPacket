@@ -93,6 +93,7 @@ class JobRow(Base):
     cancelled = Column(Boolean, nullable=False, default=False)
     column_mapping_confirmed = Column(Boolean, nullable=False, default=False)
     paused_json = Column(Text, nullable=False, default='{"pdfs":false,"emails":false,"sms":false,"photos":false}')
+    stop_flags_json = Column(Text, nullable=False, default='{"pdfs":false,"emails":false,"sms":false,"photos":false}')
     tasks_json = Column(Text, nullable=False, default='{}')  # JSON of TaskStatus dicts
 
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -149,6 +150,7 @@ def init_db():
             col_defaults = {
                 "column_mapping_confirmed": "BOOLEAN NOT NULL DEFAULT 0",
                 "sms_body": "TEXT NOT NULL DEFAULT ''",
+                "stop_flags_json": 'TEXT NOT NULL DEFAULT \'{"pdfs":false,"emails":false,"sms":false,"photos":false}\'',
             }
             with _engine.begin() as conn:
                 for col_name in missing_cols:

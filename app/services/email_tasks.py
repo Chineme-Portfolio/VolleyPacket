@@ -170,10 +170,10 @@ def run_email_send(job: Job, provider: EmailProvider, from_name: str, from_email
 
 
 def start_email_send(job: Job, provider: EmailProvider, from_name: str = "", from_email: str = ""):
+    from app.models import TaskStatus
     data = job.valid_data if job.valid_data is not None else job.data
-    job.tasks["emails"].status = "running"
-    job.tasks["emails"].phase = "sending"
-    job.tasks["emails"].total = len(data)
+    # Fresh TaskStatus resets all counters (supports restart)
+    job.tasks["emails"] = TaskStatus(status="running", phase="sending", total=len(data))
     job.status = "running"
     job.save()
     thread = threading.Thread(

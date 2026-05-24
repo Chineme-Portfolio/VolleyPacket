@@ -2,6 +2,7 @@ import os
 import csv
 import json
 import uuid
+import asyncio
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query, Depends
 from fastapi.responses import FileResponse
@@ -121,13 +122,84 @@ def get_job_status(job_id: str, user: UserRow = Depends(get_current_user)):
     return job.to_response().model_dump()
 
 
-# --- CANCEL JOB ---
+# --- SSE STREAM ---
 
-@router.post("/{job_id}/cancel")
-def cancel_job(job_id: str, user: UserRow = Depends(get_current_user)):
+@router.get("/{job_id}/stream")
+async def stream_job_events(job_id: str, user: UserRow = Depends(get_current_user)):
+    """SSE stream pushing task progress and log availability.
+
+    Reads directly from DB each tick (bypasses the in-memory cache) so that
+    progress updates from background threads on OTHER workers are visible.
+    """
+    from fastapi.responses import StreamingResponse
+    from app.database import get_session as db_session, JobRow
+
+    async def generate():
+        while True:
+            try:
+                session = db_session()
+                try:
+                    row = session.get(JobRow, job_id)
+                    if not row or row.owner_id != user.id:
+                        yield f"data: {json.dumps({'error': 'Job not found'})}\n\n"
+                        return
+
+                    tasks_data = json.loads(row.tasks_json) if row.tasks_json else {}
+                    job_status = row.status
+                    timestamp = row.timestamp
+                finally:
+                    session.close()
+
+                available_logs = []
+                for key, meta in LOG_TYPES.items():
+                    for ext in (".csv", ".xlsx"):
+                        log_key = f"logs/{meta['prefix']}_{timestamp}{ext}"
+                        try:
+                            if store.exists(log_key):
+                                available_logs.append(key)
+                                break
+                        except Exception:
+                            pass
+
+                yield "data: " + json.dumps({
+                    "job_status": job_status,
+                    "tasks": tasks_data,
+                    "available_logs": available_logs,
+                }) + "\n\n"
+
+                has_running = any(
+                    t.get("status") == "running"
+                    for t in tasks_data.values()
+                    if isinstance(t, dict)
+                )
+                await asyncio.sleep(2 if has_running else 10)
+
+            except (asyncio.CancelledError, GeneratorExit):
+                return
+            except Exception:
+                return
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# --- CANCEL TASK ---
+
+@router.post("/{job_id}/{task_name}/cancel")
+def cancel_task(job_id: str, task_name: str, user: UserRow = Depends(get_current_user)):
     job = _get_job_or_404(job_id, user)
-    job.cancel()
-    return {"message": "Job cancelled", "job_id": job_id}
+    if task_name not in VALID_TASKS:
+        raise HTTPException(status_code=400, detail=f"Invalid task. Must be one of: {VALID_TASKS}")
+
+    task = job.tasks[task_name]
+    if task.status not in ("running", "created"):
+        raise HTTPException(status_code=409, detail=f"Task '{task_name}' is not running (status: {task.status})")
+
+    job.cancel_task(task_name)
+    return {"message": f"Task '{task_name}' cancelled", "task": task_name}
 
 
 # --- DELETE JOB ---
@@ -433,6 +505,10 @@ def generate_pdfs(job_id: str, user: UserRow = Depends(get_current_user)):
     if "Email" in job.columns:
         job.validate_emails()
 
+    # Clear stop flag before (re)start
+    job.stop_flags["pdfs"] = False
+    job._clear_stop_flag("pdfs")
+
     start_pdf_generation(job)
     return {"message": "PDF generation started", "total": job.tasks["pdfs"].total}
 
@@ -504,6 +580,10 @@ def send_emails(job_id: str, user: UserRow = Depends(get_current_user)):
 
     provider, settings = _get_user_provider(user)
 
+    # Clear stop flag before (re)start
+    job.stop_flags["emails"] = False
+    job._clear_stop_flag("emails")
+
     start_email_send(job, provider, from_name=settings.from_name, from_email=settings.from_email)
     return {"message": "Email send started", "total": job.tasks["emails"].total}
 
@@ -527,6 +607,10 @@ def send_sms(job_id: str, user: UserRow = Depends(get_current_user)):
     if job.tasks["sms"].status == "running":
         raise HTTPException(status_code=409, detail="SMS send already running")
 
+    # Clear stop flag before (re)start
+    job.stop_flags["sms"] = False
+    job._clear_stop_flag("sms")
+
     start_sms_send(job)
     return {"message": "SMS send started", "total": job.tasks["sms"].total}
 
@@ -545,6 +629,10 @@ def download_photos(job_id: str, user: UserRow = Depends(get_current_user)):
 
     if job.tasks["photos"].status == "running":
         raise HTTPException(status_code=409, detail="Photo download already running")
+
+    # Clear stop flag before (re)start
+    job.stop_flags["photos"] = False
+    job._clear_stop_flag("photos")
 
     start_photo_download(job)
     return {"message": "Photo download started", "total": job.tasks["photos"].total}

@@ -138,7 +138,14 @@ class Job:
             "sms": False,
             "photos": False,
         }
+        self.stop_flags = {
+            "pdfs": False,
+            "emails": False,
+            "sms": False,
+            "photos": False,
+        }
         self._lock = threading.Lock()
+        self._last_flag_check = 0.0
 
         # Job mode: "dynamic_pdf", "static_attachment", "email_only"
         self.job_mode = "dynamic_pdf"
@@ -181,6 +188,20 @@ class Job:
             if not row:
                 row = JobRow(id=self.job_id)
                 session.add(row)
+
+            # Check for externally-set stop flags before saving tasks
+            # (prevents background thread from overwriting a cancel signal)
+            if row.stop_flags_json:
+                try:
+                    db_flags = json.loads(row.stop_flags_json)
+                    for task_name, stopped in db_flags.items():
+                        if stopped and task_name in self.tasks:
+                            if self.tasks[task_name].status == "running":
+                                self.tasks[task_name].status = "cancelled"
+                                self.tasks[task_name].phase = "cancelled"
+                            self.stop_flags[task_name] = True
+                except (json.JSONDecodeError, TypeError):
+                    pass
 
             row.owner_id = self.owner_id
             row.status = self.status
@@ -251,7 +272,9 @@ class Job:
         job.cancelled = row.cancelled
         job.column_mapping_confirmed = getattr(row, 'column_mapping_confirmed', False) or False
         job.paused = json.loads(row.paused_json)
+        job.stop_flags = json.loads(getattr(row, 'stop_flags_json', None) or '{"pdfs":false,"emails":false,"sms":false,"photos":false}')
         job._lock = threading.Lock()
+        job._last_flag_check = 0.0
 
         # Restore task statuses
         tasks_data = json.loads(row.tasks_json) if row.tasks_json else {}
@@ -328,6 +351,69 @@ class Job:
             self.status = "cancelled"
         self.save()
 
+    def cancel_task(self, task_name: str):
+        """Cancel a specific task (works across workers via DB flag)."""
+        with self._lock:
+            self.stop_flags[task_name] = True
+            self.tasks[task_name].status = "cancelled"
+            self.tasks[task_name].phase = "cancelled"
+        # Write stop flag to a separate DB column so the background thread's
+        # regular save() never overwrites it.
+        from app.database import get_session, JobRow
+        session = get_session()
+        try:
+            row = session.get(JobRow, self.job_id)
+            if row:
+                row.stop_flags_json = json.dumps(self.stop_flags)
+                # Also update tasks_json to reflect cancellation immediately
+                tasks = json.loads(row.tasks_json) if row.tasks_json else {}
+                if task_name in tasks:
+                    tasks[task_name]["status"] = "cancelled"
+                    tasks[task_name]["phase"] = "cancelled"
+                row.tasks_json = json.dumps(tasks)
+                session.commit()
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Failed to save stop flag for {self.job_id}/{task_name}: {e}")
+        finally:
+            session.close()
+
+    def _clear_stop_flag(self, task_name: str):
+        """Clear the stop flag for a task (called before restart)."""
+        from app.database import get_session, JobRow
+        session = get_session()
+        try:
+            row = session.get(JobRow, self.job_id)
+            if row:
+                flags = json.loads(row.stop_flags_json) if row.stop_flags_json else {}
+                flags[task_name] = False
+                row.stop_flags_json = json.dumps(flags)
+                session.commit()
+        except Exception:
+            session.rollback()
+        finally:
+            session.close()
+
+    def _refresh_control_flags(self):
+        """Reload cancel/pause/stop flags from DB for cross-worker signal propagation."""
+        from app.database import get_session, JobRow
+        session = get_session()
+        try:
+            row = session.get(JobRow, self.job_id)
+            if row:
+                if row.cancelled:
+                    self.cancelled = True
+                self.paused.update(json.loads(row.paused_json))
+                if row.stop_flags_json:
+                    db_flags = json.loads(row.stop_flags_json)
+                    for k, v in db_flags.items():
+                        if v:
+                            self.stop_flags[k] = True
+        except Exception:
+            pass
+        finally:
+            session.close()
+
     def pause_task(self, task_name: str):
         with self._lock:
             self.paused[task_name] = True
@@ -343,18 +429,30 @@ class Job:
         self.save()
 
     def should_stop(self, task_name: str) -> bool:
-        if self.cancelled:
+        if self.cancelled or self.stop_flags.get(task_name, False):
             return True
+        # Periodic DB refresh for cross-worker cancel/pause signals
+        now = time.time()
+        if now - self._last_flag_check > 3:
+            self._last_flag_check = now
+            self._refresh_control_flags()
+            if self.cancelled or self.stop_flags.get(task_name, False):
+                return True
         while self.paused.get(task_name, False):
-            if self.cancelled:
+            if self.cancelled or self.stop_flags.get(task_name, False):
                 return True
             time.sleep(0.5)
+            now = time.time()
+            if now - self._last_flag_check > 3:
+                self._last_flag_check = now
+                self._refresh_control_flags()
         return False
 
     def reset_tasks(self):
         for key in self.tasks:
             self.tasks[key] = TaskStatus()
         self.paused = {k: False for k in self.paused}
+        self.stop_flags = {k: False for k in self.stop_flags}
         self.cancelled = False
         self.valid_data = None
         self.invalid_data = None
@@ -579,7 +677,9 @@ def _lightweight_job_from_row(row) -> Job:
     job.cancelled = row.cancelled
     job.column_mapping_confirmed = getattr(row, 'column_mapping_confirmed', False) or False
     job.paused = json.loads(row.paused_json)
+    job.stop_flags = json.loads(getattr(row, 'stop_flags_json', None) or '{"pdfs":false,"emails":false,"sms":false,"photos":false}')
     job._lock = threading.Lock()
+    job._last_flag_check = 0.0
 
     # Use candidate_count from DB instead of loading DataFrame
     job.data = pd.DataFrame(columns=job.columns)

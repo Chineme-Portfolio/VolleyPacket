@@ -133,9 +133,9 @@ def run_sms_send(job: Job):
 
 
 def start_sms_send(job: Job):
-    job.tasks["sms"].status = "running"
-    job.tasks["sms"].phase = "sending"
-    job.tasks["sms"].total = len(job.data)
+    from app.models import TaskStatus
+    # Fresh TaskStatus resets all counters (supports restart)
+    job.tasks["sms"] = TaskStatus(status="running", phase="sending", total=len(job.data))
     job.status = "running"
     job.save()
     thread = threading.Thread(target=run_sms_send, args=(job,), daemon=True)

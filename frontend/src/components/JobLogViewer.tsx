@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { getJobLogs, getJobLog, LogMeta, LogData } from "@/lib/api";
 import { friendlyError } from "@/lib/errors";
 import { useToast } from "@/components/Toast";
 
 interface JobLogViewerProps {
   jobId: string;
+  availableLogs: string[];
 }
 
-export default function JobLogViewer({ jobId }: JobLogViewerProps) {
+export default function JobLogViewer({ jobId, availableLogs }: JobLogViewerProps) {
   const { toast } = useToast();
   const [tabs, setTabs] = useState<LogMeta[]>([]);
   const [activeTab, setActiveTab] = useState<string | null>(null);
@@ -18,29 +19,26 @@ export default function JobLogViewer({ jobId }: JobLogViewerProps) {
   const [logLoading, setLogLoading] = useState(false);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 50;
+  const prevLogsRef = useRef<string>("");
 
   useEffect(() => {
-    let cancelled = false;
+    const key = availableLogs.slice().sort().join(",");
+    if (key === prevLogsRef.current && tabs.length > 0) return;
+    prevLogsRef.current = key;
 
-    function fetchLogs() {
-      getJobLogs(jobId)
-        .then((logs) => {
-          if (cancelled) return;
-          setTabs(logs);
-          if (logs.length > 0 && !activeTab) setActiveTab(logs[0].key);
-        })
-        .catch((err: unknown) => {
-          if (!cancelled) toast(friendlyError(err));
-        })
-        .finally(() => {
-          if (!cancelled) setLoading(false);
-        });
+    if (availableLogs.length === 0) {
+      setLoading(false);
+      return;
     }
 
-    fetchLogs();
-    const interval = setInterval(fetchLogs, 10_000);
-    return () => { cancelled = true; clearInterval(interval); };
-  }, [jobId]);
+    getJobLogs(jobId)
+      .then((logs) => {
+        setTabs(logs);
+        if (logs.length > 0 && !activeTab) setActiveTab(logs[0].key);
+      })
+      .catch((err: unknown) => toast(friendlyError(err)))
+      .finally(() => setLoading(false));
+  }, [jobId, availableLogs]);
 
   const loadLog = useCallback(
     async (key: string, offset: number) => {
