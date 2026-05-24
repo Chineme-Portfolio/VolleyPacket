@@ -142,6 +142,10 @@ def init_db():
 
     Base.metadata.create_all(_engine)
 
+    # Mark any tasks stuck as "running" from a previous process as "interrupted"
+    from app.services.jobs import mark_stale_running_tasks
+    mark_stale_running_tasks()
+
 
 def _auto_migrate(engine):
     """Add missing columns to existing tables by reading SQLAlchemy model definitions.

@@ -285,11 +285,10 @@ class Job:
             else:
                 job.tasks[key] = TaskStatus()
 
-        # Mark any "running" tasks as interrupted (server restarted)
-        for task in job.tasks.values():
-            if task.status == "running":
-                task.status = "interrupted"
-                task.phase = "interrupted"
+        # NOTE: Do NOT mark running tasks as interrupted here.
+        # In a multi-worker setup, a task might be legitimately running on another
+        # worker. Interruption detection happens ONCE at startup via
+        # mark_stale_running_tasks(), not on every job load.
 
         # Load DataFrame from storage
         folder = os.path.join(config.JOBS_FOLDER, job.job_id)
@@ -507,26 +506,15 @@ class Job:
         return self.pdf_folder
 
 
-# --- JOB STORE (DB-backed with in-memory cache for running jobs) ---
-
-_cache: dict[str, Job] = {}
-_cache_lock = threading.Lock()
-
-
-def _cache_job(job: Job):
-    """Add a job to the in-memory cache."""
-    with _cache_lock:
-        _cache[job.job_id] = job
-
-
-def _uncache_job(job_id: str):
-    """Remove a job from the cache."""
-    with _cache_lock:
-        _cache.pop(job_id, None)
+# --- JOB STORE (always reads from DB — no in-memory cache) ---
+#
+# Background threads hold their own reference to the Job object they were
+# given at start time. All API endpoints load a fresh Job from the database
+# on every request, so multi-worker deployments always see the latest state.
 
 
 def delete_job_fully(job: Job):
-    """Delete a job: DB record, cached object, and ALL associated files."""
+    """Delete a job: DB record and ALL associated files."""
     job_id = job.job_id
 
     # 1. Remove from DB
@@ -544,18 +532,15 @@ def delete_job_fully(job: Job):
     finally:
         session.close()
 
-    # 2. Remove from cache
-    _uncache_job(job_id)
-
-    # 3. Delete job data folder (data.xlsx, valid_data.xlsx, etc.)
+    # 2. Delete job data folder (data.xlsx, valid_data.xlsx, etc.)
     job_data_key = f"data/jobs/{job_id}"
     store.delete_dir(job_data_key)
 
-    # 4. Delete PDF folder
+    # 3. Delete PDF folder
     pdf_key = f"output/pdfs_{job_id}"
     store.delete_dir(pdf_key)
 
-    # 5. Delete PDF zip
+    # 4. Delete PDF zip
     for suffix in ("", "_partial"):
         zip_key = f"output/pdfs_{job_id}{suffix}.zip"
         try:
@@ -563,7 +548,7 @@ def delete_job_fully(job: Job):
         except Exception:
             pass
 
-    # 6. Delete logs (run_*, sms_run_*, etc.) — use job timestamp
+    # 5. Delete logs (run_*, sms_run_*, etc.) — use job timestamp
     timestamp = job.timestamp
     if timestamp:
         for prefix in ("run", "sms_run", "photo_download", "invalid_emails"):
@@ -574,7 +559,7 @@ def delete_job_fully(job: Job):
                 except Exception:
                     pass
 
-    # 7. Delete report
+    # 6. Delete report
     report_key = f"logs/report_{job_id}.xlsx"
     try:
         store.delete(report_key)
@@ -588,18 +573,11 @@ def create_job(candidate_file: str, data: pd.DataFrame, owner_id: str = "") -> J
     job_id = str(uuid.uuid4())[:8]
     job = Job(job_id=job_id, candidate_file=candidate_file, data=data, owner_id=owner_id)
     job.save(include_data=True)
-    _cache_job(job)
     return job
 
 
 def get_job(job_id: str) -> Job | None:
-    """Get a job by ID — checks cache first, then DB."""
-    # Check cache (running jobs)
-    with _cache_lock:
-        if job_id in _cache:
-            return _cache[job_id]
-
-    # Load from DB
+    """Get a job by ID — always loads fresh state from DB."""
     return _load_job_from_db(job_id)
 
 
@@ -632,12 +610,7 @@ def _load_job_from_db(job_id: str) -> Job | None:
         row = session.get(JobRow, job_id)
         if not row:
             return None
-        job = Job.from_db_row(row)
-        _cache_job(job)
-        # Persist interrupted status so SSE (which reads raw DB) sees it too
-        if any(t.status == "interrupted" for t in job.tasks.values()):
-            job.save()
-        return job
+        return Job.from_db_row(row)
     except Exception as e:
         logger.error(f"Failed to load job {job_id} from DB: {e}")
         return None
@@ -646,7 +619,7 @@ def _load_job_from_db(job_id: str) -> Job | None:
 
 
 def _list_jobs_from_db(user_id: str | None = None) -> list[Job]:
-    """List jobs from the database. Returns Job objects with data loaded."""
+    """List jobs from the database. Returns lightweight job objects."""
     from app.database import get_session, JobRow
 
     session = get_session()
@@ -659,13 +632,6 @@ def _list_jobs_from_db(user_id: str | None = None) -> list[Job]:
 
         jobs = []
         for row in rows:
-            # Use cached version if available (has live task progress)
-            with _cache_lock:
-                if row.id in _cache:
-                    jobs.append(_cache[row.id])
-                    continue
-
-            # Build a lightweight response without loading DataFrame
             try:
                 job = _lightweight_job_from_row(row)
                 jobs.append(job)
@@ -751,3 +717,35 @@ def _patched_to_response(self) -> JobResponse:
 
 
 Job.to_response = _patched_to_response
+
+
+def mark_stale_running_tasks():
+    """Run ONCE on startup: mark any 'running' tasks as 'interrupted' in the DB.
+
+    If a task shows 'running' in the DB right now, the thread that was running it
+    is dead (this process just started). This replaces the old from_db_row() logic
+    that incorrectly ran on every job load — which corrupted state in multi-worker
+    deployments by marking tasks that were legitimately running on another worker.
+    """
+    from app.database import get_session, JobRow
+
+    session = get_session()
+    try:
+        rows = session.query(JobRow).all()
+        for row in rows:
+            tasks = json.loads(row.tasks_json) if row.tasks_json else {}
+            modified = False
+            for task_name, task_data in tasks.items():
+                if isinstance(task_data, dict) and task_data.get("status") == "running":
+                    task_data["status"] = "interrupted"
+                    task_data["phase"] = "interrupted"
+                    modified = True
+            if modified:
+                row.tasks_json = json.dumps(tasks)
+                logger.info(f"Startup: marked stale running tasks as interrupted for job {row.id}")
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Startup: failed to mark stale running tasks: {e}")
+    finally:
+        session.close()
