@@ -615,6 +615,9 @@ def _load_job_from_db(job_id: str) -> Job | None:
             return None
         job = Job.from_db_row(row)
         _cache_job(job)
+        # Persist interrupted status so SSE (which reads raw DB) sees it too
+        if any(t.status == "interrupted" for t in job.tasks.values()):
+            job.save()
         return job
     except Exception as e:
         logger.error(f"Failed to load job {job_id} from DB: {e}")
