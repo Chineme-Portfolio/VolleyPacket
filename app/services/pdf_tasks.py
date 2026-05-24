@@ -23,9 +23,13 @@ def run_pdf_generation(job: Job):
         temp_folder = os.path.join(config.OUTPUT_FOLDER, f"temp_{job.job_id}")
         os.makedirs(temp_folder, exist_ok=True)
 
+        existing_files = set(os.listdir(pdf_folder))
+        logger.info(f"[pdf_gen] Job {job.job_id}: entering loop — {len(data)} rows, {len(existing_files)} existing PDFs in folder")
+
         skipped = 0
         for idx, (_, row) in enumerate(data.iterrows()):
             if job.should_stop("pdfs"):
+                logger.info(f"[pdf_gen] Job {job.job_id}: stop signal at row {idx}")
                 task.status = "cancelled"
                 task.phase = "cancelled"
                 job.save()
@@ -41,10 +45,11 @@ def run_pdf_generation(job: Job):
                     break
             if not file_id:
                 file_id = f"recipient_{idx + 1}"
-            output_path = os.path.join(pdf_folder, f"{safe_filename(file_id)}.pdf")
+            pdf_filename = f"{safe_filename(file_id)}.pdf"
+            output_path = os.path.join(pdf_folder, pdf_filename)
 
             # Skip if PDF already exists (restored from S3/ZIP or previous partial run)
-            if os.path.isfile(output_path):
+            if pdf_filename in existing_files:
                 skipped += 1
             else:
                 # Check for photo URL in any photo-related column
@@ -75,6 +80,7 @@ def run_pdf_generation(job: Job):
 
         if skipped:
             logger.info(f"[pdf_gen] Job {job.job_id}: skipped {skipped} already-existing PDFs")
+        logger.info(f"[pdf_gen] Job {job.job_id}: loop done — entering zip phase")
 
         # Zip
         task.phase = "zipping"
@@ -82,7 +88,9 @@ def run_pdf_generation(job: Job):
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for filename in os.listdir(pdf_folder):
                 zf.write(os.path.join(pdf_folder, filename), filename)
+        logger.info(f"[pdf_gen] Job {job.job_id}: zip created, uploading to S3")
         store.save_local_file(zip_path)
+        logger.info(f"[pdf_gen] Job {job.job_id}: zip uploaded to S3")
 
         task.status = "complete"
         task.phase = "complete"
@@ -90,8 +98,8 @@ def run_pdf_generation(job: Job):
 
         logger.info(f"[pdf_gen] Job {job.job_id}: complete — {task.pdfs_generated} generated")
 
-    except Exception as e:
-        logger.exception(f"[pdf_gen] Job {job.job_id}: CRASHED — {e}")
+    except BaseException as e:
+        logger.exception(f"[pdf_gen] Job {job.job_id}: CRASHED ({type(e).__name__}) — {e}")
         task.status = "failed"
         task.error = str(e)
         try:
