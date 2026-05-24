@@ -88,7 +88,7 @@ export default function TaskPanel({ jobId, taskKey, initialTask, canStart, isTer
         }
       } catch { /* ignore */ }
     };
-    interval();
+    setInterval(interval, 2000);
 
   }, [isRunning, jobId, taskKey]);
 
