@@ -51,6 +51,9 @@ def run_pdf_generation(job: Job):
 
             render_pdf(job.template, row_dict, output_path, photo_path=photo_path)
 
+            # Upload individual PDF to S3 so email task can find it after redeploy
+            store.save_local_file(output_path)
+
             if photo_path and os.path.exists(photo_path):
                 os.remove(photo_path)
 

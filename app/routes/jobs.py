@@ -283,12 +283,13 @@ async def reupload_data(
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Failed to read file: {e}")
 
-    # Reset job state with new data
+    # Replace data without resetting completed tasks
     job.data = data
     job.columns = list(data.columns)
     job.candidate_file = candidate_file.filename
-    job.status = "created"
-    job.reset_tasks()
+    # Clear filtered data (will be re-validated when tasks start)
+    job.valid_data = None
+    job.invalid_data = None
     job.save(include_data=True)
 
     return job.to_response().model_dump()

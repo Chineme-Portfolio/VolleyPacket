@@ -487,6 +487,23 @@ class Job:
         if not self.pdf_folder:
             self.pdf_folder = os.path.join(config.OUTPUT_FOLDER, f"pdfs_{self.job_id}")
             os.makedirs(self.pdf_folder, exist_ok=True)
+
+        # If folder is empty but PDFs exist in S3, restore them
+        if not os.listdir(self.pdf_folder):
+            from app.services.storage import _key_from_local
+            pdf_key_prefix = _key_from_local(self.pdf_folder)
+            try:
+                remote_files = store.list_dir(pdf_key_prefix)
+                if remote_files:
+                    logger.info(f"Restoring {len(remote_files)} PDFs from storage for job {self.job_id}")
+                    for file_key in remote_files:
+                        try:
+                            store.ensure_local(file_key)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
         return self.pdf_folder
 
 

@@ -107,6 +107,14 @@ def run_email_send(job: Job, provider: EmailProvider, from_name: str, from_email
 
                 if job_mode == "dynamic_pdf":
                     pdf_path = os.path.join(pdf_folder, f"{safe_filename(exam_no)}.pdf")
+
+                    # Try local first, fall back to S3 download
+                    if not os.path.isfile(pdf_path):
+                        try:
+                            store.ensure_local(_key_from_local(pdf_path))
+                        except Exception:
+                            pass  # still not found — handled below
+
                     entry["PDFGenerated"] = os.path.isfile(pdf_path)
 
                     if not os.path.isfile(pdf_path):
