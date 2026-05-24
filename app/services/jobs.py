@@ -494,11 +494,25 @@ class Job:
         return self.pdf_folder
 
     def _restore_pdfs_from_storage(self):
-        """Restore PDFs to local disk from S3 — tries individual files first, then ZIP."""
+        """Restore PDFs to local disk from S3 — tries ZIP first (fast), then individual files."""
         import zipfile
         from app.services.storage import _key_from_local
 
-        # 1. Try individual PDFs in S3
+        # 1. Try ZIP first (one download + extract is much faster than N individual downloads)
+        zip_key = f"output/pdfs_{self.job_id}.zip"
+        try:
+            if store.exists(zip_key):
+                logger.info(f"Restoring PDFs from ZIP in S3 for job {self.job_id}")
+                zip_local = store.ensure_local(zip_key)
+                with zipfile.ZipFile(zip_local, "r") as zf:
+                    zf.extractall(self.pdf_folder)
+                restored = len(os.listdir(self.pdf_folder))
+                logger.info(f"Restored {restored} PDFs from ZIP for job {self.job_id}")
+                return
+        except Exception as e:
+            logger.warning(f"Failed to restore PDFs from ZIP for job {self.job_id}: {e}")
+
+        # 2. Fall back to individual PDFs in S3 (slower but covers partial runs with no ZIP)
         pdf_key_prefix = _key_from_local(self.pdf_folder)
         try:
             remote_files = store.list_dir(pdf_key_prefix)
@@ -509,24 +523,8 @@ class Job:
                         store.ensure_local(file_key)
                     except Exception:
                         pass
-                # Check if we actually got files
-                if os.listdir(self.pdf_folder):
-                    return
         except Exception:
             pass
-
-        # 2. Fall back to ZIP in S3
-        zip_key = f"output/pdfs_{self.job_id}.zip"
-        try:
-            if store.exists(zip_key):
-                logger.info(f"Restoring PDFs from ZIP in S3 for job {self.job_id}")
-                zip_local = store.ensure_local(zip_key)
-                with zipfile.ZipFile(zip_local, "r") as zf:
-                    zf.extractall(self.pdf_folder)
-                restored = len(os.listdir(self.pdf_folder))
-                logger.info(f"Restored {restored} PDFs from ZIP for job {self.job_id}")
-        except Exception as e:
-            logger.warning(f"Failed to restore PDFs from ZIP for job {self.job_id}: {e}")
 
 
 # --- JOB STORE (always reads from DB — no in-memory cache) ---
@@ -614,6 +612,21 @@ def get_job_for_user(job_id: str, user_id: str) -> Job | None:
     return job
 
 
+def get_job_light(job_id: str) -> Job | None:
+    """Get a lightweight job by ID — metadata and task status only, no DataFrame."""
+    return _load_job_light_from_db(job_id)
+
+
+def get_job_light_for_user(job_id: str, user_id: str) -> Job | None:
+    """Get a lightweight job only if it belongs to the user."""
+    job = get_job_light(job_id)
+    if not job:
+        return None
+    if job.owner_id and job.owner_id != user_id:
+        return None
+    return job
+
+
 def list_jobs() -> list[Job]:
     """List all jobs from DB (returns lightweight job objects)."""
     return _list_jobs_from_db()
@@ -636,6 +649,28 @@ def _load_job_from_db(job_id: str) -> Job | None:
         return Job.from_db_row(row)
     except Exception as e:
         logger.error(f"Failed to load job {job_id} from DB: {e}")
+        return None
+    finally:
+        session.close()
+
+
+def _load_job_light_from_db(job_id: str) -> Job | None:
+    """Load a lightweight job from DB — no DataFrame, no template loading.
+
+    ~instant vs ~3s for full load (avoids S3 Excel download + pandas parse).
+    Safe for any endpoint that only reads metadata / task status / timestamps.
+    NOT safe for endpoints that call save() — would write candidate_count=0.
+    """
+    from app.database import get_session, JobRow
+
+    session = get_session()
+    try:
+        row = session.get(JobRow, job_id)
+        if not row:
+            return None
+        return _lightweight_job_from_row(row)
+    except Exception as e:
+        logger.error(f"Failed to load job (light) {job_id} from DB: {e}")
         return None
     finally:
         session.close()

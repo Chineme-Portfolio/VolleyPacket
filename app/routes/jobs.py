@@ -12,7 +12,7 @@ import pandas as pd
 
 import re
 from app.models import AttachTemplateRequest, TemplateConfig
-from app.services.jobs import create_job, get_job_for_user, list_jobs_for_user
+from app.services.jobs import create_job, get_job_for_user, get_job_light_for_user, list_jobs_for_user
 from app.services.read_data import load_data
 from app.services.pdf_tasks import start_pdf_generation
 from app.services.email_tasks import start_email_send
@@ -46,6 +46,18 @@ async def _read_upload(file: UploadFile, max_size: int = MAX_UPLOAD_SIZE) -> byt
 def _get_job_or_404(job_id: str, user: UserRow) -> "Job":
     """Fetch a job, ensuring it belongs to the user."""
     job = get_job_for_user(job_id, user.id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+def _get_job_or_404_light(job_id: str, user: UserRow) -> "Job":
+    """Fetch a lightweight job (no DataFrame loading).
+
+    Use for read-only endpoints that only need metadata, task status, or timestamps.
+    Do NOT use for endpoints that call job.save() — would write candidate_count=0.
+    """
+    job = get_job_light_for_user(job_id, user.id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
@@ -118,7 +130,7 @@ async def create_new_job(
 
 @router.get("/{job_id}")
 def get_job_status(job_id: str, user: UserRow = Depends(get_current_user)):
-    job = _get_job_or_404(job_id, user)
+    job = _get_job_or_404_light(job_id, user)
     return job.to_response().model_dump()
 
 
@@ -190,7 +202,7 @@ async def stream_job_events(job_id: str, user: UserRow = Depends(get_current_use
 
 @router.post("/{job_id}/{task_name}/cancel")
 def cancel_task(job_id: str, task_name: str, user: UserRow = Depends(get_current_user)):
-    job = _get_job_or_404(job_id, user)
+    job = _get_job_or_404_light(job_id, user)
     if task_name not in VALID_TASKS:
         raise HTTPException(status_code=400, detail=f"Invalid task. Must be one of: {VALID_TASKS}")
 
@@ -207,7 +219,7 @@ def cancel_task(job_id: str, task_name: str, user: UserRow = Depends(get_current
 @router.delete("/{job_id}")
 def delete_job(job_id: str, user: UserRow = Depends(get_current_user)):
     from app.services.jobs import delete_job_fully
-    job = _get_job_or_404(job_id, user)
+    job = _get_job_or_404_light(job_id, user)
 
     # Block delete if any task is running
     running = [k for k, t in job.tasks.items() if t.status == "running"]
@@ -523,7 +535,7 @@ def generate_pdfs(job_id: str, user: UserRow = Depends(get_current_user)):
 
 @router.get("/{job_id}/pdfs/status")
 def get_pdf_status(job_id: str, user: UserRow = Depends(get_current_user)):
-    job = _get_job_or_404(job_id, user)
+    job = _get_job_or_404_light(job_id, user)
     return job.tasks["pdfs"].model_dump()
 
 
@@ -535,7 +547,7 @@ def download_pdfs(
 ):
     import zipfile
 
-    job = _get_job_or_404(job_id, user)
+    job = _get_job_or_404_light(job_id, user)
     task = job.tasks["pdfs"]
 
     if partial:
@@ -606,7 +618,7 @@ def send_emails(job_id: str, user: UserRow = Depends(get_current_user)):
 
 @router.get("/{job_id}/emails/status")
 def get_email_status(job_id: str, user: UserRow = Depends(get_current_user)):
-    job = _get_job_or_404(job_id, user)
+    job = _get_job_or_404_light(job_id, user)
     return job.tasks["emails"].model_dump()
 
 
@@ -640,7 +652,7 @@ def send_sms(job_id: str, user: UserRow = Depends(get_current_user)):
 
 @router.get("/{job_id}/sms/status")
 def get_sms_status(job_id: str, user: UserRow = Depends(get_current_user)):
-    job = _get_job_or_404(job_id, user)
+    job = _get_job_or_404_light(job_id, user)
     return job.tasks["sms"].model_dump()
 
 
@@ -663,7 +675,7 @@ def download_photos(job_id: str, user: UserRow = Depends(get_current_user)):
 
 @router.get("/{job_id}/photos/status")
 def get_photo_status(job_id: str, user: UserRow = Depends(get_current_user)):
-    job = _get_job_or_404(job_id, user)
+    job = _get_job_or_404_light(job_id, user)
     return job.tasks["photos"].model_dump()
 
 
@@ -731,7 +743,7 @@ def _read_log_file(path: str, limit: int, offset: int) -> dict:
 
 @router.get("/{job_id}/logs")
 def list_job_logs(job_id: str, user: UserRow = Depends(get_current_user)):
-    job = _get_job_or_404(job_id, user)
+    job = _get_job_or_404_light(job_id, user)
 
     available = []
     for key, meta in LOG_TYPES.items():
@@ -758,7 +770,7 @@ def get_job_log(
     offset: int = Query(0, ge=0),
     user: UserRow = Depends(get_current_user),
 ):
-    job = _get_job_or_404(job_id, user)
+    job = _get_job_or_404_light(job_id, user)
 
     if log_key not in LOG_TYPES:
         raise HTTPException(status_code=400, detail=f"Unknown log type: {log_key}")
