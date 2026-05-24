@@ -137,34 +137,72 @@ def init_db():
     _engine = create_engine(db_url, pool_pre_ping=True)
     _SessionLocal = sessionmaker(bind=_engine)
 
-    # Migrate: add missing columns to existing tables (non-destructive)
-    from sqlalchemy import inspect, text
-    inspector = inspect(_engine)
-    if "jobs" in inspector.get_table_names():
-        existing_cols = {c["name"] for c in inspector.get_columns("jobs")}
-        expected_cols = {c.name for c in JobRow.__table__.columns}
-        missing_cols = expected_cols - existing_cols
-
-        if missing_cols:
-            # Known column definitions for ALTER TABLE migration
-            col_defaults = {
-                "column_mapping_confirmed": "BOOLEAN NOT NULL DEFAULT 0",
-                "sms_body": "TEXT NOT NULL DEFAULT ''",
-                "stop_flags_json": 'TEXT NOT NULL DEFAULT \'{"pdfs":false,"emails":false,"sms":false,"photos":false}\'',
-            }
-            with _engine.begin() as conn:
-                for col_name in missing_cols:
-                    if col_name in col_defaults:
-                        try:
-                            conn.execute(text(f"ALTER TABLE jobs ADD COLUMN {col_name} {col_defaults[col_name]}"))
-                        except Exception:
-                            pass  # Column may already exist in some edge cases
-                    else:
-                        # Unknown column — fall back to table recreation
-                        conn.execute(text("DROP TABLE IF EXISTS jobs"))
-                        break
+    # Auto-migrate: add missing columns to ALL existing tables (non-destructive, never drops data)
+    _auto_migrate(_engine)
 
     Base.metadata.create_all(_engine)
+
+
+def _auto_migrate(engine):
+    """Add missing columns to existing tables by reading SQLAlchemy model definitions.
+
+    Runs on every startup. Only adds columns — never drops tables or columns.
+    Works with both PostgreSQL and SQLite.
+    """
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+
+    for table in Base.metadata.sorted_tables:
+        if table.name not in existing_tables:
+            continue  # Table doesn't exist yet — create_all() will handle it
+
+        existing_cols = {c["name"] for c in inspector.get_columns(table.name)}
+        model_cols = {c.name: c for c in table.columns}
+        missing = set(model_cols.keys()) - existing_cols
+
+        if not missing:
+            continue
+
+        with engine.begin() as conn:
+            for col_name in missing:
+                col = model_cols[col_name]
+                try:
+                    col_type = col.type.compile(dialect=engine.dialect)
+
+                    # Build the default clause
+                    default_sql = ""
+                    if col.default is not None and col.default.arg is not None:
+                        default_val = col.default.arg
+                        if isinstance(default_val, bool):
+                            default_sql = f" DEFAULT {1 if default_val else 0}"
+                        elif isinstance(default_val, (int, float)):
+                            default_sql = f" DEFAULT {default_val}"
+                        elif isinstance(default_val, str):
+                            escaped = default_val.replace("'", "''")
+                            default_sql = f" DEFAULT '{escaped}'"
+                        # Skip callable defaults (like datetime.utcnow) — they can't be expressed in DDL
+
+                    nullable = " NOT NULL" if not col.nullable else ""
+
+                    # If NOT NULL and no default, we must provide one to avoid crashing on existing rows
+                    if not col.nullable and not default_sql:
+                        type_str = str(col_type).upper()
+                        if "INT" in type_str:
+                            default_sql = " DEFAULT 0"
+                        elif "BOOL" in type_str:
+                            default_sql = " DEFAULT 0"
+                        elif "TEXT" in type_str or "VARCHAR" in type_str or "CHAR" in type_str:
+                            default_sql = " DEFAULT ''"
+                        else:
+                            # Can't infer a safe default — make it nullable to avoid crash
+                            nullable = ""
+
+                    sql = f"ALTER TABLE {table.name} ADD COLUMN {col_name} {col_type}{nullable}{default_sql}"
+                    conn.execute(text(sql))
+                except Exception:
+                    pass  # Column may already exist (race between workers)
 
 
 def get_session() -> Session:
