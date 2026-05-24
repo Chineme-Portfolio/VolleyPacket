@@ -149,8 +149,10 @@ def _auto_migrate(engine):
     Runs on every startup. Only adds columns — never drops tables or columns.
     Works with both PostgreSQL and SQLite.
     """
+    import logging
     from sqlalchemy import inspect, text
 
+    log = logging.getLogger(__name__)
     inspector = inspect(engine)
     existing_tables = set(inspector.get_table_names())
 
@@ -164,6 +166,8 @@ def _auto_migrate(engine):
 
         if not missing:
             continue
+
+        log.info(f"Auto-migrate: {table.name} missing columns {missing}")
 
         with engine.begin() as conn:
             for col_name in missing:
@@ -200,9 +204,16 @@ def _auto_migrate(engine):
                             nullable = ""
 
                     sql = f"ALTER TABLE {table.name} ADD COLUMN {col_name} {col_type}{nullable}{default_sql}"
+                    log.info(f"Auto-migrate: {sql}")
                     conn.execute(text(sql))
-                except Exception:
-                    pass  # Column may already exist (race between workers)
+                    log.info(f"Auto-migrate: added {table.name}.{col_name}")
+                except Exception as e:
+                    # "already exists" is fine (race between workers), anything else is a real problem
+                    err_msg = str(e).lower()
+                    if "already exists" in err_msg or "duplicate column" in err_msg:
+                        pass
+                    else:
+                        log.error(f"Auto-migrate: failed to add {table.name}.{col_name}: {e}")
 
 
 def get_session() -> Session:
