@@ -1,6 +1,7 @@
 import os
 import re
 import csv
+import logging
 import threading
 
 import pandas as pd
@@ -9,6 +10,8 @@ import requests
 from app.services.jobs import Job
 from app.services.storage import store
 from app import config
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_phone(raw):
@@ -60,14 +63,15 @@ def send_one_sms(phone, message):
 
 def run_sms_send(job: Job):
     task = job.tasks["sms"]
-    data = job.data
-
-    sms_template = getattr(job, "sms_body", "") or DEFAULT_SMS_BODY
-
-    os.makedirs(config.LOG_FOLDER, exist_ok=True)
-    log_path = os.path.join(config.LOG_FOLDER, f"sms_run_{job.timestamp}.csv")
 
     try:
+        data = job.data
+        logger.info(f"[sms_send] Job {job.job_id}: starting SMS send — {len(data)} recipients")
+
+        sms_template = getattr(job, "sms_body", "") or DEFAULT_SMS_BODY
+
+        os.makedirs(config.LOG_FOLDER, exist_ok=True)
+        log_path = os.path.join(config.LOG_FOLDER, f"sms_run_{job.timestamp}.csv")
         with open(log_path, "w", newline="", encoding="utf-8") as log_file:
             writer = csv.DictWriter(
                 log_file,
@@ -126,10 +130,16 @@ def run_sms_send(job: Job):
         task.phase = "complete"
         job.save()
 
+        logger.info(f"[sms_send] Job {job.job_id}: complete — {task.sms_sent} sent, {task.sms_failed} failed, {task.sms_skipped} skipped")
+
     except Exception as e:
+        logger.exception(f"[sms_send] Job {job.job_id}: CRASHED — {e}")
         task.status = "failed"
         task.error = str(e)
-        job.save()
+        try:
+            job.save()
+        except Exception:
+            logger.error(f"[sms_send] Job {job.job_id}: failed to save error state")
 
 
 def start_sms_send(job: Job):

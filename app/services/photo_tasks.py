@@ -1,5 +1,6 @@
 import os
 import re
+import logging
 import threading
 import csv
 import urllib.request
@@ -10,6 +11,8 @@ from PIL import Image, ImageOps
 from app.services.jobs import Job
 from app.services.storage import store
 from app import config
+
+logger = logging.getLogger(__name__)
 
 
 MAX_DIMENSION = 800
@@ -89,17 +92,18 @@ def download_and_save(photo_url, exam_no, output_folder, cache_folder=None):
 
 def run_photo_download(job: Job):
     task = job.tasks["photos"]
-    data = job.data
-
-    photo_folder = os.path.join(config.OUTPUT_FOLDER, f"photos_{job.job_id}")
-    cache_folder = os.path.join(config.OUTPUT_FOLDER, f"photo_cache_{job.job_id}")
-    os.makedirs(photo_folder, exist_ok=True)
-    os.makedirs(cache_folder, exist_ok=True)
-    os.makedirs(config.LOG_FOLDER, exist_ok=True)
-
-    log_path = os.path.join(config.LOG_FOLDER, f"photo_download_{job.timestamp}.csv")
 
     try:
+        data = job.data
+        logger.info(f"[photo_dl] Job {job.job_id}: starting photo download — {len(data)} recipients")
+
+        photo_folder = os.path.join(config.OUTPUT_FOLDER, f"photos_{job.job_id}")
+        cache_folder = os.path.join(config.OUTPUT_FOLDER, f"photo_cache_{job.job_id}")
+        os.makedirs(photo_folder, exist_ok=True)
+        os.makedirs(cache_folder, exist_ok=True)
+        os.makedirs(config.LOG_FOLDER, exist_ok=True)
+
+        log_path = os.path.join(config.LOG_FOLDER, f"photo_download_{job.timestamp}.csv")
         with open(log_path, "w", newline="", encoding="utf-8") as log_file:
             writer = csv.DictWriter(
                 log_file,
@@ -175,10 +179,16 @@ def run_photo_download(job: Job):
         task.phase = "complete"
         job.save()
 
+        logger.info(f"[photo_dl] Job {job.job_id}: complete — {task.photos_downloaded} downloaded, {task.photos_failed} failed")
+
     except Exception as e:
+        logger.exception(f"[photo_dl] Job {job.job_id}: CRASHED — {e}")
         task.status = "failed"
         task.error = str(e)
-        job.save()
+        try:
+            job.save()
+        except Exception:
+            logger.error(f"[photo_dl] Job {job.job_id}: failed to save error state")
 
 
 def start_photo_download(job: Job):

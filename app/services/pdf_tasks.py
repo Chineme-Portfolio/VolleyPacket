@@ -1,4 +1,5 @@
 import os
+import logging
 import zipfile
 import threading
 
@@ -8,17 +9,19 @@ from app.services.generator import safe_filename, download_photo
 from app.services.storage import store
 from app import config
 
+logger = logging.getLogger(__name__)
+
 
 def run_pdf_generation(job: Job):
     task = job.tasks["pdfs"]
-    data = job.valid_data if job.valid_data is not None else job.data
-    # total already set by start_pdf_generation before thread starts
-
-    pdf_folder = job.get_pdf_folder()
-    temp_folder = os.path.join(config.OUTPUT_FOLDER, f"temp_{job.job_id}")
-    os.makedirs(temp_folder, exist_ok=True)
 
     try:
+        data = job.valid_data if job.valid_data is not None else job.data
+        logger.info(f"[pdf_gen] Job {job.job_id}: starting PDF generation — {len(data)} recipients")
+
+        pdf_folder = job.get_pdf_folder()
+        temp_folder = os.path.join(config.OUTPUT_FOLDER, f"temp_{job.job_id}")
+        os.makedirs(temp_folder, exist_ok=True)
         for idx, (_, row) in enumerate(data.iterrows()):
             if job.should_stop("pdfs"):
                 task.status = "cancelled"
@@ -71,13 +74,20 @@ def run_pdf_generation(job: Job):
         task.phase = "complete"
         job.save()
 
+        logger.info(f"[pdf_gen] Job {job.job_id}: complete — {task.pdfs_generated} generated")
+
     except Exception as e:
+        logger.exception(f"[pdf_gen] Job {job.job_id}: CRASHED — {e}")
         task.status = "failed"
         task.error = str(e)
-        job.save()
+        try:
+            job.save()
+        except Exception:
+            logger.error(f"[pdf_gen] Job {job.job_id}: failed to save error state")
 
     finally:
         import shutil
+        temp_folder = os.path.join(config.OUTPUT_FOLDER, f"temp_{job.job_id}")
         if os.path.exists(temp_folder):
             shutil.rmtree(temp_folder, ignore_errors=True)
 

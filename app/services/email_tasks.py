@@ -1,5 +1,6 @@
 import os
 import csv
+import logging
 import threading
 
 from app.services.jobs import Job
@@ -7,6 +8,8 @@ from app.services.generator import safe_filename
 from app.services.email_providers import EmailProvider, EmailMessage
 from app.services.storage import store, _key_from_local
 from app import config
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_EMAIL_BODY = """<html>
@@ -42,30 +45,32 @@ def _render_subject(template_subject: str, row_dict: dict) -> str:
 
 def run_email_send(job: Job, provider: EmailProvider, from_name: str, from_email: str):
     task = job.tasks["emails"]
-    data = job.valid_data if job.valid_data is not None else job.data
-    # total already set by start_email_send before thread starts
-
-    job_mode = getattr(job, "job_mode", "dynamic_pdf")
-    pdf_folder = job.get_pdf_folder() if job_mode == "dynamic_pdf" else None
-    static_attachment_path = getattr(job, "static_attachment_path", None)
-
-    # Email content — use job's custom content or defaults
-    email_subject_tpl = getattr(job, "email_subject", "") or "Message for {Name}"
-    email_body_tpl = getattr(job, "email_body", "") or DEFAULT_EMAIL_BODY
-
-    # Sender info for template
-    if job.template and job.template.signature:
-        sig_name = job.template.signature.name or from_name
-        sig_title = job.template.signature.title or ""
-    else:
-        sig_name = from_name
-        sig_title = ""
-
-    os.makedirs(config.LOG_FOLDER, exist_ok=True)
-    log_path = os.path.join(config.LOG_FOLDER, f"run_{job.timestamp}.csv")
-    job.log_path = log_path
 
     try:
+        data = job.valid_data if job.valid_data is not None else job.data
+        logger.info(f"[email_send] Job {job.job_id}: starting email send — {len(data)} recipients")
+
+        job_mode = getattr(job, "job_mode", "dynamic_pdf")
+        pdf_folder = job.get_pdf_folder() if job_mode == "dynamic_pdf" else None
+        static_attachment_path = getattr(job, "static_attachment_path", None)
+
+        # Email content — use job's custom content or defaults
+        email_subject_tpl = getattr(job, "email_subject", "") or "Message for {Name}"
+        email_body_tpl = getattr(job, "email_body", "") or DEFAULT_EMAIL_BODY
+
+        # Sender info for template (signature field is optional)
+        sig_name = from_name
+        sig_title = ""
+        if job.template:
+            sig = getattr(job.template, "signature", None)
+            if sig:
+                sig_name = getattr(sig, "name", None) or from_name
+                sig_title = getattr(sig, "title", None) or ""
+
+        os.makedirs(config.LOG_FOLDER, exist_ok=True)
+        log_path = os.path.join(config.LOG_FOLDER, f"run_{job.timestamp}.csv")
+        job.log_path = log_path
+
         with open(log_path, "w", newline="", encoding="utf-8") as log_file:
             writer = csv.DictWriter(
                 log_file,
@@ -79,6 +84,7 @@ def run_email_send(job: Job, provider: EmailProvider, from_name: str, from_email
                     task.status = "cancelled"
                     task.phase = "cancelled"
                     job.save()
+                    logger.info(f"[email_send] Job {job.job_id}: cancelled at {idx}/{len(data)}")
                     return
 
                 row_dict = row.to_dict()
@@ -148,6 +154,7 @@ def run_email_send(job: Job, provider: EmailProvider, from_name: str, from_email
                 except Exception as e:
                     entry["Error"] = str(e)
                     task.emails_failed += 1
+                    logger.warning(f"[email_send] Job {job.job_id}: failed to send to {email_addr}: {e}")
 
                 writer.writerow(entry)
                 log_file.flush()
@@ -162,11 +169,16 @@ def run_email_send(job: Job, provider: EmailProvider, from_name: str, from_email
         task.status = "complete"
         task.phase = "complete"
         job.save()
+        logger.info(f"[email_send] Job {job.job_id}: complete — {task.emails_sent} sent, {task.emails_failed} failed")
 
     except Exception as e:
+        logger.exception(f"[email_send] Job {job.job_id}: CRASHED — {e}")
         task.status = "failed"
         task.error = str(e)
-        job.save()
+        try:
+            job.save()
+        except Exception:
+            logger.error(f"[email_send] Job {job.job_id}: failed to save error state")
 
 
 def start_email_send(job: Job, provider: EmailProvider, from_name: str = "", from_email: str = ""):
