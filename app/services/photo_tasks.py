@@ -195,6 +195,7 @@ def start_photo_download(job: Job):
     from app.models import TaskStatus
     # Fresh TaskStatus resets all counters (supports restart)
     job.tasks["photos"] = TaskStatus(status="running", phase="downloading", total=len(job.data))
+    job.paused["photos"] = False  # clear stale pause from previous run
     job.status = "running"
     job.save()
     thread = threading.Thread(target=run_photo_download, args=(job,), daemon=True)

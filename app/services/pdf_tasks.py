@@ -119,6 +119,7 @@ def start_pdf_generation(job: Job):
     data = job.valid_data if job.valid_data is not None else job.data
     # Fresh TaskStatus resets all counters (supports restart)
     job.tasks["pdfs"] = TaskStatus(status="running", phase="generating", total=len(data))
+    job.paused["pdfs"] = False  # clear stale pause from previous run
     job.status = "running"
     job.save()
     thread = threading.Thread(target=run_pdf_generation, args=(job,), daemon=True)

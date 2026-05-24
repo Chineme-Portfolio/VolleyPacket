@@ -202,6 +202,7 @@ def start_email_send(job: Job, provider: EmailProvider, from_name: str = "", fro
     data = job.valid_data if job.valid_data is not None else job.data
     # Fresh TaskStatus resets all counters (supports restart)
     job.tasks["emails"] = TaskStatus(status="running", phase="sending", total=len(data))
+    job.paused["emails"] = False  # clear stale pause from previous run
     job.status = "running"
     job.save()
     thread = threading.Thread(
