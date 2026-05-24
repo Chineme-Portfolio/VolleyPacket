@@ -46,30 +46,29 @@ def run_pdf_generation(job: Job):
             # Skip if PDF already exists (restored from S3/ZIP or previous partial run)
             if os.path.isfile(output_path):
                 skipped += 1
-                task.pdfs_generated = idx + 1
-                task.progress = idx + 1
-                continue
+            else:
+                # Check for photo URL in any photo-related column
+                photo_path = None
+                for col in ["PhotoLink", "PhotoURL", "Photo", "photo_url", "photo"]:
+                    photo_url = row_dict.get(col, "")
+                    if photo_url and str(photo_url).startswith("http"):
+                        photo_path = download_photo(str(photo_url), temp_folder)
+                        break
 
-            # Check for photo URL in any photo-related column
-            photo_path = None
-            for col in ["PhotoLink", "PhotoURL", "Photo", "photo_url", "photo"]:
-                photo_url = row_dict.get(col, "")
-                if photo_url and str(photo_url).startswith("http"):
-                    photo_path = download_photo(str(photo_url), temp_folder)
-                    break
+                render_pdf(job.template, row_dict, output_path, photo_path=photo_path)
 
-            render_pdf(job.template, row_dict, output_path, photo_path=photo_path)
+                # Upload individual PDF to S3 so email task can find it after redeploy
+                store.save_local_file(output_path)
 
-            # Upload individual PDF to S3 so email task can find it after redeploy
-            store.save_local_file(output_path)
+                if photo_path and os.path.exists(photo_path):
+                    os.remove(photo_path)
 
-            if photo_path and os.path.exists(photo_path):
-                os.remove(photo_path)
+                if not job.paused.get("pdfs", False):
+                    task.phase = "generating"
 
+            # Progress tracking runs for BOTH skipped and rendered PDFs
             task.pdfs_generated = idx + 1
             task.progress = idx + 1
-            if not job.paused.get("pdfs", False):
-                task.phase = "generating"
 
             if (idx + 1) % 10 == 0 or (idx + 1) == len(data):
                 job.save()
