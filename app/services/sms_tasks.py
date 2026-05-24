@@ -65,6 +65,9 @@ def run_sms_send(job: Job):
     task = job.tasks["sms"]
 
     try:
+        if not config.BULKSMS_API_TOKEN:
+            raise ValueError("BULKSMS_API_TOKEN is not configured — set it in environment variables")
+
         data = job.data
         logger.info(f"[sms_send] Job {job.job_id}: starting SMS send — {len(data)} recipients")
 

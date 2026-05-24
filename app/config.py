@@ -46,3 +46,7 @@ PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY")
 PAYSTACK_WEBHOOK_SECRET = os.getenv("PAYSTACK_WEBHOOK_SECRET")
 PAYSTACK_PLAN_CLASSIC = os.getenv("PAYSTACK_PLAN_CLASSIC", "")  # Paystack plan_code for Classic
 PAYSTACK_PLAN_PRO = os.getenv("PAYSTACK_PLAN_PRO", "")          # Paystack plan_code for Pro
+
+# BulkSMS (Nigeria-focused SMS provider)
+BULKSMS_API_TOKEN = os.getenv("BULKSMS_API_TOKEN", "")
+BULKSMS_API_URL = os.getenv("BULKSMS_API_URL", "https://www.bulksmsnigeria.com/api/v2/sms")
