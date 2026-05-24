@@ -19,9 +19,11 @@ def run_pdf_generation(job: Job):
         data = job.valid_data if job.valid_data is not None else job.data
         logger.info(f"[pdf_gen] Job {job.job_id}: starting PDF generation — {len(data)} recipients")
 
-        pdf_folder = job.get_pdf_folder()
+        pdf_folder = job.get_pdf_folder()  # also restores from S3/ZIP if empty
         temp_folder = os.path.join(config.OUTPUT_FOLDER, f"temp_{job.job_id}")
         os.makedirs(temp_folder, exist_ok=True)
+
+        skipped = 0
         for idx, (_, row) in enumerate(data.iterrows()):
             if job.should_stop("pdfs"):
                 task.status = "cancelled"
@@ -40,6 +42,13 @@ def run_pdf_generation(job: Job):
             if not file_id:
                 file_id = f"recipient_{idx + 1}"
             output_path = os.path.join(pdf_folder, f"{safe_filename(file_id)}.pdf")
+
+            # Skip if PDF already exists (restored from S3/ZIP or previous partial run)
+            if os.path.isfile(output_path):
+                skipped += 1
+                task.pdfs_generated = idx + 1
+                task.progress = idx + 1
+                continue
 
             # Check for photo URL in any photo-related column
             photo_path = None
@@ -64,6 +73,9 @@ def run_pdf_generation(job: Job):
 
             if (idx + 1) % 10 == 0 or (idx + 1) == len(data):
                 job.save()
+
+        if skipped:
+            logger.info(f"[pdf_gen] Job {job.job_id}: skipped {skipped} already-existing PDFs")
 
         # Zip
         task.phase = "zipping"

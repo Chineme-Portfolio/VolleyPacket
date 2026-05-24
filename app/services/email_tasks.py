@@ -106,7 +106,15 @@ def run_email_send(job: Job, provider: EmailProvider, from_name: str, from_email
                 attachment_bytes = None
 
                 if job_mode == "dynamic_pdf":
-                    pdf_path = os.path.join(pdf_folder, f"{safe_filename(exam_no)}.pdf")
+                    # Use same column priority as PDF generator for filename lookup
+                    file_id = None
+                    for col in ["Name", "ExamNo", "Email", "ID", "Id", "id"]:
+                        if col in row_dict and row_dict[col]:
+                            file_id = str(row_dict[col])
+                            break
+                    if not file_id:
+                        file_id = f"recipient_{idx + 1}"
+                    pdf_path = os.path.join(pdf_folder, f"{safe_filename(file_id)}.pdf")
 
                     # Try local first, fall back to S3 download
                     if not os.path.isfile(pdf_path):

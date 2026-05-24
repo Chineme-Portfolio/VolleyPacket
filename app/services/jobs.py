@@ -487,23 +487,46 @@ class Job:
             self.pdf_folder = os.path.join(config.OUTPUT_FOLDER, f"pdfs_{self.job_id}")
             os.makedirs(self.pdf_folder, exist_ok=True)
 
-        # If folder is empty but PDFs exist in S3, restore them
+        # If folder is empty, try to restore PDFs from storage
         if not os.listdir(self.pdf_folder):
-            from app.services.storage import _key_from_local
-            pdf_key_prefix = _key_from_local(self.pdf_folder)
-            try:
-                remote_files = store.list_dir(pdf_key_prefix)
-                if remote_files:
-                    logger.info(f"Restoring {len(remote_files)} PDFs from storage for job {self.job_id}")
-                    for file_key in remote_files:
-                        try:
-                            store.ensure_local(file_key)
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+            self._restore_pdfs_from_storage()
 
         return self.pdf_folder
+
+    def _restore_pdfs_from_storage(self):
+        """Restore PDFs to local disk from S3 — tries individual files first, then ZIP."""
+        import zipfile
+        from app.services.storage import _key_from_local
+
+        # 1. Try individual PDFs in S3
+        pdf_key_prefix = _key_from_local(self.pdf_folder)
+        try:
+            remote_files = store.list_dir(pdf_key_prefix)
+            if remote_files:
+                logger.info(f"Restoring {len(remote_files)} individual PDFs from S3 for job {self.job_id}")
+                for file_key in remote_files:
+                    try:
+                        store.ensure_local(file_key)
+                    except Exception:
+                        pass
+                # Check if we actually got files
+                if os.listdir(self.pdf_folder):
+                    return
+        except Exception:
+            pass
+
+        # 2. Fall back to ZIP in S3
+        zip_key = f"output/pdfs_{self.job_id}.zip"
+        try:
+            if store.exists(zip_key):
+                logger.info(f"Restoring PDFs from ZIP in S3 for job {self.job_id}")
+                zip_local = store.ensure_local(zip_key)
+                with zipfile.ZipFile(zip_local, "r") as zf:
+                    zf.extractall(self.pdf_folder)
+                restored = len(os.listdir(self.pdf_folder))
+                logger.info(f"Restored {restored} PDFs from ZIP for job {self.job_id}")
+        except Exception as e:
+            logger.warning(f"Failed to restore PDFs from ZIP for job {self.job_id}: {e}")
 
 
 # --- JOB STORE (always reads from DB — no in-memory cache) ---
