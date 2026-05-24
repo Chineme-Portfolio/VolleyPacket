@@ -218,7 +218,48 @@ class Job:
             row.cancelled = self.cancelled
             row.column_mapping_confirmed = self.column_mapping_confirmed
             row.paused_json = json.dumps(self.paused)
-            row.tasks_json = json.dumps({k: v.model_dump() for k, v in self.tasks.items()})
+
+            # --- Merge tasks_json to prevent cross-worker state regression ---
+            # Without merging, a config save on Worker 2 can overwrite a
+            # "complete" status written by the background thread on Worker 1
+            # with a stale snapshot (e.g. 28%).
+            mem_tasks = {k: v.model_dump() for k, v in self.tasks.items()}
+            db_tasks_raw = row.tasks_json
+            if db_tasks_raw:
+                try:
+                    db_tasks = json.loads(db_tasks_raw)
+                except (json.JSONDecodeError, TypeError):
+                    db_tasks = {}
+            else:
+                db_tasks = {}
+
+            TERMINAL = {"complete", "cancelled", "failed", "interrupted"}
+            merged = {}
+            for tn in set(list(db_tasks.keys()) + list(mem_tasks.keys())):
+                db_t = db_tasks.get(tn)
+                mem_t = mem_tasks.get(tn)
+                if not db_t:
+                    merged[tn] = mem_t
+                    continue
+                if not mem_t:
+                    merged[tn] = db_t
+                    continue
+                db_status = db_t.get("status", "idle")
+                mem_status = mem_t.get("status", "idle")
+                db_progress = db_t.get("progress", 0) or 0
+                mem_progress = mem_t.get("progress", 0) or 0
+                # Fresh task start/restart: running at 0 with total set → allow override
+                if mem_status == "running" and mem_progress == 0 and mem_t.get("total", 0) > 0:
+                    merged[tn] = mem_t
+                # DB reached terminal state but memory hasn't caught up → keep DB
+                elif db_status in TERMINAL and mem_status not in TERMINAL:
+                    merged[tn] = db_t
+                # DB has more progress → keep DB (other worker advanced further)
+                elif db_progress > mem_progress:
+                    merged[tn] = db_t
+                else:
+                    merged[tn] = mem_t
+            row.tasks_json = json.dumps(merged)
 
             session.commit()
         except Exception as e:
@@ -420,14 +461,48 @@ class Job:
             self.paused[task_name] = True
             if self.tasks[task_name].status == "running":
                 self.tasks[task_name].phase = "paused"
-        self.save()
+        # Write directly to DB (like cancel_task) to avoid overwriting
+        # task progress via save()'s full tasks_json write.
+        from app.database import get_session, JobRow
+        session = get_session()
+        try:
+            row = session.get(JobRow, self.job_id)
+            if row:
+                row.paused_json = json.dumps(self.paused)
+                tasks = json.loads(row.tasks_json) if row.tasks_json else {}
+                if task_name in tasks and tasks[task_name].get("status") == "running":
+                    tasks[task_name]["phase"] = "paused"
+                    row.tasks_json = json.dumps(tasks)
+                session.commit()
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Failed to pause task {self.job_id}/{task_name}: {e}")
+        finally:
+            session.close()
 
     def resume_task(self, task_name: str):
         with self._lock:
             self.paused[task_name] = False
             if self.tasks[task_name].phase == "paused":
                 self.tasks[task_name].phase = "running"
-        self.save()
+        # Write directly to DB (like cancel_task) to avoid overwriting
+        # task progress via save()'s full tasks_json write.
+        from app.database import get_session, JobRow
+        session = get_session()
+        try:
+            row = session.get(JobRow, self.job_id)
+            if row:
+                row.paused_json = json.dumps(self.paused)
+                tasks = json.loads(row.tasks_json) if row.tasks_json else {}
+                if task_name in tasks and tasks[task_name].get("phase") == "paused":
+                    tasks[task_name]["phase"] = "running"
+                    row.tasks_json = json.dumps(tasks)
+                session.commit()
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Failed to resume task {self.job_id}/{task_name}: {e}")
+        finally:
+            session.close()
 
     def should_stop(self, task_name: str) -> bool:
         if self.cancelled or self.stop_flags.get(task_name, False):
