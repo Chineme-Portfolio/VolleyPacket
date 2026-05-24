@@ -415,6 +415,7 @@ export interface ColumnMapping {
   columns: string[];
   auto_matched: Record<string, string>;
   unmatched: string[];
+  confirmed: boolean;
 }
 
 export async function getColumnMapping(jobId: string): Promise<ColumnMapping> {

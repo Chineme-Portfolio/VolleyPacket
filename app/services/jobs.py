@@ -131,6 +131,7 @@ class Job:
 
         # Control flags
         self.cancelled = False
+        self.column_mapping_confirmed = False
         self.paused = {
             "pdfs": False,
             "emails": False,
@@ -194,6 +195,7 @@ class Job:
             row.email_body = self.email_body
             row.sms_body = self.sms_body
             row.cancelled = self.cancelled
+            row.column_mapping_confirmed = self.column_mapping_confirmed
             row.paused_json = json.dumps(self.paused)
             row.tasks_json = json.dumps({k: v.model_dump() for k, v in self.tasks.items()})
 
@@ -247,6 +249,7 @@ class Job:
         job.email_body = row.email_body
         job.sms_body = row.sms_body or ""
         job.cancelled = row.cancelled
+        job.column_mapping_confirmed = getattr(row, 'column_mapping_confirmed', False) or False
         job.paused = json.loads(row.paused_json)
         job._lock = threading.Lock()
 
@@ -574,6 +577,7 @@ def _lightweight_job_from_row(row) -> Job:
     job.email_body = row.email_body
     job.sms_body = row.sms_body or ""
     job.cancelled = row.cancelled
+    job.column_mapping_confirmed = getattr(row, 'column_mapping_confirmed', False) or False
     job.paused = json.loads(row.paused_json)
     job._lock = threading.Lock()
 

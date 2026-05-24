@@ -245,6 +245,8 @@ def attach_template(job_id: str, request: AttachTemplateRequest, user: UserRow =
     else:
         raise HTTPException(status_code=400, detail="Provide either template_id or template config")
 
+    # Reset column mapping confirmation when template changes (new placeholders)
+    job.column_mapping_confirmed = False
     job.save()
     return {"message": "Template attached", "template_id": job.template_id}
 
@@ -364,6 +366,7 @@ def get_column_mapping(job_id: str, user: UserRow = Depends(get_current_user)):
         "columns": job.columns,
         "auto_matched": auto_matched,
         "unmatched": unmatched,
+        "confirmed": job.column_mapping_confirmed,
     }
 
 
@@ -390,7 +393,10 @@ def apply_column_mapping(job_id: str, req: ColumnMappingRequest, user: UserRow =
     if rename_map:
         job.data = job.data.rename(columns=rename_map)
         job.columns = list(job.data.columns)
-        job.save(include_data=True)
+
+    # Mark mapping as confirmed (persists across refreshes)
+    job.column_mapping_confirmed = True
+    job.save(include_data=bool(rename_map))
 
     return {
         "message": f"Mapped {len(rename_map)} columns",

@@ -91,6 +91,7 @@ class JobRow(Base):
     sms_body = Column(Text, nullable=False, default="")
 
     cancelled = Column(Boolean, nullable=False, default=False)
+    column_mapping_confirmed = Column(Boolean, nullable=False, default=False)
     paused_json = Column(Text, nullable=False, default='{"pdfs":false,"emails":false,"sms":false,"photos":false}')
     tasks_json = Column(Text, nullable=False, default='{}')  # JSON of TaskStatus dicts
 
@@ -135,15 +136,31 @@ def init_db():
     _engine = create_engine(db_url, pool_pre_ping=True)
     _SessionLocal = sessionmaker(bind=_engine)
 
-    # Migrate: drop old jobs table if it has the wrong schema (pre-DB migration)
+    # Migrate: add missing columns to existing tables (non-destructive)
     from sqlalchemy import inspect, text
     inspector = inspect(_engine)
     if "jobs" in inspector.get_table_names():
         existing_cols = {c["name"] for c in inspector.get_columns("jobs")}
         expected_cols = {c.name for c in JobRow.__table__.columns}
-        if not expected_cols.issubset(existing_cols):
+        missing_cols = expected_cols - existing_cols
+
+        if missing_cols:
+            # Known column definitions for ALTER TABLE migration
+            col_defaults = {
+                "column_mapping_confirmed": "BOOLEAN NOT NULL DEFAULT 0",
+                "sms_body": "TEXT NOT NULL DEFAULT ''",
+            }
             with _engine.begin() as conn:
-                conn.execute(text("DROP TABLE IF EXISTS jobs CASCADE"))
+                for col_name in missing_cols:
+                    if col_name in col_defaults:
+                        try:
+                            conn.execute(text(f"ALTER TABLE jobs ADD COLUMN {col_name} {col_defaults[col_name]}"))
+                        except Exception:
+                            pass  # Column may already exist in some edge cases
+                    else:
+                        # Unknown column — fall back to table recreation
+                        conn.execute(text("DROP TABLE IF EXISTS jobs"))
+                        break
 
     Base.metadata.create_all(_engine)
 

@@ -16,11 +16,9 @@ export default function ColumnMapper({ jobId, columns, onMapped }: ColumnMapperP
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [userMapping, setUserMapping] = useState<Record<string, string>>({});
-  const [confirmed, setConfirmed] = useState(false);
 
   useEffect(() => {
     setLoading(true);
-    // Don't reset confirmed — if user already confirmed, keep it hidden
     getColumnMapping(jobId)
       .then((m) => {
         setMapping(m);
@@ -53,7 +51,8 @@ export default function ColumnMapper({ jobId, columns, onMapped }: ColumnMapperP
     setError("");
     try {
       await applyColumnMapping(jobId, toApply);
-      setConfirmed(true);
+      // Update local mapping to reflect confirmed state from backend
+      setMapping((prev) => prev ? { ...prev, confirmed: true } : prev);
       onMapped?.();
     } catch (err) {
       setError(friendlyError(err));
@@ -64,10 +63,13 @@ export default function ColumnMapper({ jobId, columns, onMapped }: ColumnMapperP
 
   if (loading || !mapping) return null;
 
+  // Hide if backend says mapping was already confirmed (survives page refresh)
+  if (mapping.confirmed) return null;
+
   // If everything auto-matched perfectly (all placeholders are already column names), hide
   const allMatched = mapping.unmatched.length === 0 &&
     Object.entries(mapping.auto_matched).every(([ph, col]) => ph === col);
-  if (allMatched || confirmed) return null;
+  if (allMatched) return null;
 
   const hasUnmatched = mapping.unmatched.length > 0;
   const unmappedCount = Object.entries(userMapping).filter(([, col]) => !col).length;
