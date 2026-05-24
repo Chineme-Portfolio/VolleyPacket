@@ -90,7 +90,6 @@ def download_and_save(photo_url, exam_no, output_folder, cache_folder=None):
 def run_photo_download(job: Job):
     task = job.tasks["photos"]
     data = job.data
-    task.total = len(data)
 
     photo_folder = os.path.join(config.OUTPUT_FOLDER, f"photos_{job.job_id}")
     cache_folder = os.path.join(config.OUTPUT_FOLDER, f"photo_cache_{job.job_id}")
@@ -163,6 +162,9 @@ def run_photo_download(job: Job):
                         log_file.flush()
                         task.progress = task.photos_downloaded + task.photos_failed
 
+                        if task.progress % 10 == 0:
+                            job.save()
+
         # Clean up cache folder
         import shutil
         if os.path.exists(cache_folder):
@@ -182,6 +184,8 @@ def run_photo_download(job: Job):
 def start_photo_download(job: Job):
     job.tasks["photos"].status = "running"
     job.tasks["photos"].phase = "downloading"
+    job.tasks["photos"].total = len(job.data)
     job.status = "running"
+    job.save()
     thread = threading.Thread(target=run_photo_download, args=(job,), daemon=True)
     thread.start()

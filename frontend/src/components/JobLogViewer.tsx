@@ -20,13 +20,26 @@ export default function JobLogViewer({ jobId }: JobLogViewerProps) {
   const PAGE_SIZE = 50;
 
   useEffect(() => {
-    getJobLogs(jobId)
-      .then((logs) => {
-        setTabs(logs);
-        if (logs.length > 0) setActiveTab(logs[0].key);
-      })
-      .catch((err: unknown) => toast(friendlyError(err)))
-      .finally(() => setLoading(false));
+    let cancelled = false;
+
+    function fetchLogs() {
+      getJobLogs(jobId)
+        .then((logs) => {
+          if (cancelled) return;
+          setTabs(logs);
+          if (logs.length > 0 && !activeTab) setActiveTab(logs[0].key);
+        })
+        .catch((err: unknown) => {
+          if (!cancelled) toast(friendlyError(err));
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    }
+
+    fetchLogs();
+    const interval = setInterval(fetchLogs, 10_000);
+    return () => { cancelled = true; clearInterval(interval); };
   }, [jobId]);
 
   const loadLog = useCallback(

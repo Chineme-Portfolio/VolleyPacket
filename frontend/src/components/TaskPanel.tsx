@@ -1,26 +1,8 @@
 "use client";
 
 /**
- * TaskPanel.tsx — Self-contained panel for a single task (pdfs, emails, sms, photos).
- *
- * ARCHITECTURE:
- * - Each TaskPanel manages its OWN state + polling independently.
- * - The parent (job detail page) passes `initialTask` once on mount and whenever
- *   it does a full job reload (e.g. after re-upload or cancel).
- * - Polling hits a lightweight per-task endpoint (`GET /jobs/{id}/{task}/status`)
- *   instead of reloading the entire job — so only THIS panel re-renders on tick.
- *
- * KEY DEFENSE against green-button flash:
- * - `hasStartedRef` is a React ref (not state) set synchronously in handleStart()
- *   BEFORE any async work. Because refs don't trigger re-renders and persist across
- *   renders, the Start button can never flash back between the click and the API response.
- *
- * DATA FLOW:
- *   1. Component mounts → state initialized from `initialTask` prop
- *   2. Parent's `initialTask` changes → useEffect syncs it into local state
- *   3. User clicks Start → handleStart() fires the API, then fetches fresh status
- *   4. Polling starts (because isRunning becomes true) → fetches status every 2s
- *   5. Task completes → polling stops, panel shows final state
+ * Self-contained panel for a single task (pdfs, emails, sms, photos).
+ * Each panel manages its own polling via GET /jobs/{id}/{task}/status.
  */
 
 import { useEffect, useState, useCallback, useRef } from "react";
@@ -81,29 +63,14 @@ function statusColor(status: string) {
  * This does NOT reload the entire job — just one task's progress/status.
  */
 async function fetchTaskStatus(jobId: string, taskKey: string): Promise<TaskStatus> {
-  console.log(`[TaskPanel:${taskKey}] 📡 fetchTaskStatus — hitting GET /jobs/${jobId}/${taskKey}/status`);
-
   const token = typeof window !== "undefined" ? localStorage.getItem("vp_token") : null;
   const res = await fetch(`${API_BASE}/jobs/${jobId}/${taskKey}/status`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
 
-  if (!res.ok) {
-    console.error(`[TaskPanel:${taskKey}] ❌ fetchTaskStatus failed — HTTP ${res.status}`);
-    throw new Error("Failed to fetch status");
-  }
+  if (!res.ok) throw new Error("Failed to fetch status");
 
-  // Parse JSON response (can only call .json() once — it consumes the stream)
-  const data: TaskStatus = await res.json();
-  console.log(`[TaskPanel:${taskKey}] ✅ fetchTaskStatus result:`, {
-    status: data.status,
-    phase: data.phase,
-    progress: data.progress,
-    total: data.total,
-    error: data.error,
-  });
-
-  return data;
+  return res.json();
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -115,49 +82,15 @@ export default function TaskPanel({ jobId, taskKey, initialTask, canStart, isTer
   const [task, setTask] = useState<TaskStatus>(initialTask);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  /**
-   * hasStartedRef — Critical ref to prevent the green Start button from flashing back.
-   *
-   * WHY A REF AND NOT STATE?
-   * - State updates are async (batched). If we used useState, there's a window between
-   *   clicking Start and the re-render where `showStart` could still be true.
-   * - Refs update synchronously and persist across renders without triggering re-renders.
-   * - We set it to `true` as the FIRST thing in handleStart(), before any await.
-   *
-   * LIFECYCLE:
-   * - Initialized to true if the task is already running/complete on mount
-   * - Set to true on Start click (synchronously, before API call)
-   * - Set to false ONLY on error (to allow retry)
-   * - Set to true when parent syncs a running/complete initialTask
-   */
   const hasStartedRef = useRef(initialTask.status === "running" || initialTask.status === "complete");
 
   const meta = TASK_META[taskKey];
 
-  // ── Step 1: MOUNT — log initial state ──
-  console.log(`[TaskPanel:${taskKey}] 🏗️ RENDER — initialTask:`, {
-    status: initialTask.status,
-    phase: initialTask.phase,
-    progress: initialTask.progress,
-    total: initialTask.total,
-  }, `| hasStartedRef: ${hasStartedRef.current} | canStart: ${canStart} | isTerminal: ${isTerminal}`);
-
-  // ── Step 2: SYNC from parent when initialTask changes ──
-  // This fires when the parent page does a full job reload (e.g. after re-upload, cancel, etc.)
-  // We update local task state to stay in sync, but we do NOT reset hasStartedRef.
+  // ── SYNC from parent when initialTask changes ──
   useEffect(() => {
-    console.log(`[TaskPanel:${taskKey}] 🔄 SYNC useEffect fired — parent sent new initialTask:`, {
-      status: initialTask.status,
-      phase: initialTask.phase,
-      progress: initialTask.progress,
-      total: initialTask.total,
-    });
-
     setTask(initialTask);
 
-    // If parent says it's running or complete, make sure we don't show Start button
     if (initialTask.status === "running" || initialTask.status === "complete") {
-      console.log(`[TaskPanel:${taskKey}] 🔒 SYNC — marking hasStartedRef=true (status=${initialTask.status})`);
       hasStartedRef.current = true;
     }
   }, [initialTask.status, initialTask.progress, initialTask.total, initialTask.phase]);
@@ -167,178 +100,79 @@ export default function TaskPanel({ jobId, taskKey, initialTask, canStart, isTer
   const isPaused = task.phase === "paused";
   const isComplete = task.status === "complete";
 
-  console.log(`[TaskPanel:${taskKey}] 📊 Derived state:`, {
-    isRunning,
-    isPaused,
-    isComplete,
-    taskStatus: task.status,
-    taskPhase: task.phase,
-    hasStartedRef: hasStartedRef.current,
-  });
-
-  // ── Step 3: POLLING — self-contained, only this panel re-renders on tick ──
+  // ── POLLING — self-contained, only this panel re-renders on tick ──
   // Starts when isRunning becomes true, stops when it becomes false.
   // The effect's dependency on `isRunning` means the interval is created/destroyed
   // only when the running state flips — not on every render.
   useEffect(() => {
-    if (!isRunning) {
-      console.log(`[TaskPanel:${taskKey}] ⏸️ POLLING useEffect — not running, skipping poll setup`);
-      return;
-    }
-
-    console.log(`[TaskPanel:${taskKey}] ▶️ POLLING useEffect — starting 2s interval`);
+    if (!isRunning) return;
 
     const interval = setInterval(async () => {
-      console.log(`[TaskPanel:${taskKey}] ⏱️ POLL TICK — fetching fresh status...`);
       try {
         const fresh = await fetchTaskStatus(jobId, taskKey);
-
-        console.log(`[TaskPanel:${taskKey}] ⏱️ POLL TICK — got fresh status:`, {
-          status: fresh.status,
-          phase: fresh.phase,
-          progress: fresh.progress,
-          total: fresh.total,
-        });
-
         setTask(fresh);
 
         if (fresh.status !== "running") {
-          console.log(`[TaskPanel:${taskKey}] 🏁 POLL TICK — task no longer running (${fresh.status}), keeping hasStartedRef=true`);
-          hasStartedRef.current = true; // Keep it marked so Start never shows again
+          hasStartedRef.current = true;
         }
-      } catch (err) {
-        console.warn(`[TaskPanel:${taskKey}] ⚠️ POLL TICK — fetch failed, ignoring:`, err);
+      } catch {
         /* ignore — will retry next tick */
       }
     }, 2000);
 
-    // Cleanup: clear interval when isRunning flips to false or component unmounts
-    return () => {
-      console.log(`[TaskPanel:${taskKey}] 🛑 POLLING useEffect cleanup — clearing interval`);
-      clearInterval(interval);
-    };
+    return () => clearInterval(interval);
   }, [isRunning, jobId, taskKey]);
 
-  // ── Step 4: ACTION HANDLERS ──
+  // ── ACTION HANDLERS ──
 
-  /**
-   * handleStart — Called when user clicks the green Start button.
-   *
-   * FLOW:
-   *   1. Set actionLoading to "start" (shows "Starting..." text)
-   *   2. Set hasStartedRef to true SYNCHRONOUSLY (prevents button flash)
-   *   3. Call the appropriate start API (startPdfs, startEmails, etc.)
-   *   4. Fetch fresh status from the per-task endpoint
-   *   5. Update local task state → triggers re-render → polling starts
-   *
-   * ON ERROR:
-   *   - Reset hasStartedRef to false so the user can retry
-   *   - Show toast with friendly error message
-   */
   async function handleStart() {
-    console.log(`[TaskPanel:${taskKey}] 🟢 handleStart — STEP 1: Setting actionLoading="start"`);
     setActionLoading("start");
-
-    console.log(`[TaskPanel:${taskKey}] 🟢 handleStart — STEP 2: Setting hasStartedRef=true (SYNC, before any await)`);
-    hasStartedRef.current = true; // <-- THIS is the critical line that prevents button flash
+    hasStartedRef.current = true;
 
     try {
-      // STEP 3: Call the backend to actually start the task
-      console.log(`[TaskPanel:${taskKey}] 🟢 handleStart — STEP 3: Calling start API...`);
       if (taskKey === "pdfs") await startPdfs(jobId);
       else if (taskKey === "emails") await startEmails(jobId);
       else if (taskKey === "sms") await startSms(jobId);
       else await startPhotos(jobId);
-      console.log(`[TaskPanel:${taskKey}] 🟢 handleStart — STEP 3 DONE: Start API returned successfully`);
 
-      // STEP 4: Fetch fresh status — backend should have set status to "running"
-      console.log(`[TaskPanel:${taskKey}] 🟢 handleStart — STEP 4: Fetching fresh status after start...`);
       const fresh = await fetchTaskStatus(jobId, taskKey);
-
-      // STEP 5: Update local state → re-render → polling effect kicks in
-      console.log(`[TaskPanel:${taskKey}] 🟢 handleStart — STEP 5: Updating local task state:`, {
-        status: fresh.status,
-        phase: fresh.phase,
-        progress: fresh.progress,
-        total: fresh.total,
-      });
       setTask(fresh);
-
     } catch (err) {
-      console.error(`[TaskPanel:${taskKey}] ❌ handleStart — ERROR:`, err);
       toast(friendlyError(err));
-
-      // Allow retry — reset the ref so Start button can show again
-      console.log(`[TaskPanel:${taskKey}] 🔓 handleStart — resetting hasStartedRef=false (allow retry)`);
       hasStartedRef.current = false;
     } finally {
-      console.log(`[TaskPanel:${taskKey}] 🟢 handleStart — FINALLY: Clearing actionLoading`);
       setActionLoading(null);
     }
   }
 
-  /** handlePause — Pause a running task */
   async function handlePause() {
-    console.log(`[TaskPanel:${taskKey}] ⏸️ handlePause — calling pauseTask API...`);
     setActionLoading("pause");
     try {
       await pauseTask(jobId, taskKey);
-      console.log(`[TaskPanel:${taskKey}] ⏸️ handlePause — pause API returned, fetching fresh status...`);
       const fresh = await fetchTaskStatus(jobId, taskKey);
-      console.log(`[TaskPanel:${taskKey}] ⏸️ handlePause — fresh status:`, { status: fresh.status, phase: fresh.phase });
       setTask(fresh);
     } catch (err) {
-      console.error(`[TaskPanel:${taskKey}] ❌ handlePause — ERROR:`, err);
       toast(friendlyError(err));
     } finally {
       setActionLoading(null);
     }
   }
 
-  /** handleResume — Resume a paused task */
   async function handleResume() {
-    console.log(`[TaskPanel:${taskKey}] ▶️ handleResume — calling resumeTask API...`);
     setActionLoading("resume");
     try {
       await resumeTask(jobId, taskKey);
-      console.log(`[TaskPanel:${taskKey}] ▶️ handleResume — resume API returned, fetching fresh status...`);
       const fresh = await fetchTaskStatus(jobId, taskKey);
-      console.log(`[TaskPanel:${taskKey}] ▶️ handleResume — fresh status:`, { status: fresh.status, phase: fresh.phase });
       setTask(fresh);
     } catch (err) {
-      console.error(`[TaskPanel:${taskKey}] ❌ handleResume — ERROR:`, err);
       toast(friendlyError(err));
     } finally {
       setActionLoading(null);
     }
   }
 
-  // ── Step 5: RENDER DECISION — compute what to show ──
-
-  /** Progress percentage for the progress bar */
   const progressPct = task.total > 0 ? Math.round((task.progress / task.total) * 100) : 0;
-
-  /**
-   * showStart — Should we show the green Start button?
-   *
-   * ALL of these must be true:
-   *   - canStart:                Prerequisites met (e.g. template attached for PDFs)
-   *   - !isRunning:              Not currently running
-   *   - !isComplete:             Not already finished
-   *   - !isTerminal:             Job not cancelled/failed
-   *   - !hasStartedRef.current:  User hasn't clicked Start (or task was already started)
-   */
   const showStart = canStart && !isRunning && !isComplete && !isTerminal && !hasStartedRef.current;
-
-  console.log(`[TaskPanel:${taskKey}] 🎯 RENDER DECISION — showStart: ${showStart}`, {
-    canStart,
-    isRunning,
-    isComplete,
-    isTerminal,
-    hasStartedRef: hasStartedRef.current,
-    actionLoading,
-    progressPct,
-  });
 
   // ── JSX ──
 
@@ -429,7 +263,6 @@ export default function TaskPanel({ jobId, taskKey, initialTask, canStart, isTer
         {taskKey === "pdfs" && isComplete && (
           <button
             onClick={async () => {
-              console.log(`[TaskPanel:${taskKey}] 📥 Download ZIP clicked`);
               setActionLoading("download");
               try {
                 await downloadFile(getPdfDownloadUrl(jobId), `pdfs_${jobId}.zip`);
@@ -450,7 +283,6 @@ export default function TaskPanel({ jobId, taskKey, initialTask, canStart, isTer
         {taskKey === "pdfs" && (isRunning || isPaused) && task.progress > 0 && (
           <button
             onClick={async () => {
-              console.log(`[TaskPanel:${taskKey}] 📥 Download partial (${task.progress} PDFs) clicked`);
               setActionLoading("download-partial");
               try {
                 await downloadFile(getPdfDownloadUrl(jobId) + "?partial=true", `pdfs_${jobId}_partial.zip`);

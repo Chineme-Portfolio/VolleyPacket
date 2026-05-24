@@ -61,7 +61,6 @@ def send_one_sms(phone, message):
 def run_sms_send(job: Job):
     task = job.tasks["sms"]
     data = job.data
-    task.total = len(data)
 
     sms_template = getattr(job, "sms_body", "") or DEFAULT_SMS_BODY
 
@@ -119,6 +118,9 @@ def run_sms_send(job: Job):
 
                 task.progress = idx + 1
 
+                if (idx + 1) % 10 == 0 or (idx + 1) == len(data):
+                    job.save()
+
         store.save_local_file(log_path)
         task.status = "complete"
         task.phase = "complete"
@@ -133,6 +135,8 @@ def run_sms_send(job: Job):
 def start_sms_send(job: Job):
     job.tasks["sms"].status = "running"
     job.tasks["sms"].phase = "sending"
+    job.tasks["sms"].total = len(job.data)
     job.status = "running"
+    job.save()
     thread = threading.Thread(target=run_sms_send, args=(job,), daemon=True)
     thread.start()
