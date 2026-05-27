@@ -795,3 +795,36 @@ def get_job_log(
         "offset": offset,
         "limit": limit,
     }
+
+
+@router.get("/{job_id}/logs/{log_key}/download")
+def download_job_log(
+    job_id: str,
+    log_key: str,
+    user: UserRow = Depends(get_current_user),
+):
+    """Download the raw log file (CSV or XLSX)."""
+    job = _get_job_or_404_light(job_id, user)
+
+    if log_key not in LOG_TYPES:
+        raise HTTPException(status_code=400, detail=f"Unknown log type: {log_key}")
+
+    meta = LOG_TYPES[log_key]
+    storage_key = None
+    for ext in (".csv", ".xlsx"):
+        candidate_key = f"logs/{meta['prefix']}_{job.timestamp}{ext}"
+        if store.exists(candidate_key):
+            storage_key = candidate_key
+            break
+
+    if not storage_key:
+        raise HTTPException(status_code=404, detail=f"No {meta['label']} found for this job")
+
+    ext = os.path.splitext(storage_key)[1]
+    media_type = (
+        "text/csv" if ext == ".csv"
+        else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    filename = f"{meta['label'].lower().replace(' ', '_')}_{job_id}{ext}"
+
+    return store.serve(storage_key, media_type=media_type, filename=filename)

@@ -271,6 +271,13 @@ export async function getJobLog(
   return fetchJSON(`/jobs/${jobId}/logs/${logKey}?limit=${limit}&offset=${offset}`);
 }
 
+export async function downloadJobLog(jobId: string, logKey: string): Promise<void> {
+  return downloadFile(
+    `${API_BASE}/jobs/${jobId}/logs/${logKey}/download`,
+    `${logKey}_log_${jobId}.csv`
+  );
+}
+
 
 // ── Templates (with ownership) ───────────────────────────────────────
 

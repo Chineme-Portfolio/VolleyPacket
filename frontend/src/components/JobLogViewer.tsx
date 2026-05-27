@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { getJobLogs, getJobLog, LogMeta, LogData } from "@/lib/api";
+import { getJobLogs, getJobLog, downloadJobLog, LogMeta, LogData } from "@/lib/api";
 import { friendlyError } from "@/lib/errors";
 import { useToast } from "@/components/Toast";
 
@@ -20,6 +20,7 @@ export default function JobLogViewer({ jobId, availableLogs }: JobLogViewerProps
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 50;
   const prevLogsRef = useRef<string>("");
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     const key = availableLogs.slice().sort().join(",");
@@ -92,7 +93,32 @@ export default function JobLogViewer({ jobId, availableLogs }: JobLogViewerProps
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
       {/* Header + Tabs */}
       <div className="px-6 pt-5 pb-0">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Job Logs</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">Job Logs</h3>
+          {activeTab && (
+            <button
+              onClick={async () => {
+                setDownloading(true);
+                try {
+                  await downloadJobLog(jobId, activeTab);
+                } catch (err) {
+                  toast(friendlyError(err));
+                } finally {
+                  setDownloading(false);
+                }
+              }}
+              disabled={downloading}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-sm font-medium text-green-800 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors disabled:opacity-50"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              {downloading ? "Downloading..." : "Download"}
+            </button>
+          )}
+        </div>
         <div className="flex gap-1 border-b border-gray-100">
           {tabs.map((tab) => (
             <button
