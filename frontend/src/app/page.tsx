@@ -237,7 +237,7 @@ export default function LandingPage() {
           >
             <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-green-50 border border-green-200 rounded-full text-sm font-medium text-green-800 mb-6">
               <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-              Now in v2.0
+              Now in v2.1
             </div>
             <h1 className="text-5xl md:text-6xl lg:text-7xl font-extrabold text-gray-900 leading-[1.08] tracking-tight mb-6">
               Batch emails,
