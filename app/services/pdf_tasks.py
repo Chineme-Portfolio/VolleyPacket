@@ -32,6 +32,7 @@ def run_pdf_generation(job: Job):
                 logger.info(f"[pdf_gen] Job {job.job_id}: stop signal at row {idx}")
                 task.status = "cancelled"
                 task.phase = "cancelled"
+                job.update_status_from_tasks()
                 job.save()
                 return
 
@@ -94,6 +95,7 @@ def run_pdf_generation(job: Job):
 
         task.status = "complete"
         task.phase = "complete"
+        job.update_status_from_tasks()
         job.save()
 
         logger.info(f"[pdf_gen] Job {job.job_id}: complete — {task.pdfs_generated} generated")
@@ -103,6 +105,7 @@ def run_pdf_generation(job: Job):
         task.status = "failed"
         task.error = str(e)
         try:
+            job.update_status_from_tasks()
             job.save()
         except Exception:
             logger.error(f"[pdf_gen] Job {job.job_id}: failed to save error state")

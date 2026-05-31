@@ -722,6 +722,22 @@ def get_photo_status(job_id: str, user: UserRow = Depends(get_current_user)):
     return job.tasks["photos"].model_dump()
 
 
+@router.get("/{job_id}/photos/zip")
+def download_photos_zip(job_id: str, user: UserRow = Depends(get_current_user)):
+    """Download the ZIP of all downloaded photos."""
+    job = _get_job_or_404_light(job_id, user)
+    task = job.tasks["photos"]
+
+    if task.status != "complete":
+        raise HTTPException(status_code=409, detail=f"Photos not ready (status: {task.status})")
+
+    zip_key = f"output/photos_{job_id}.zip"
+    if not store.exists(zip_key):
+        raise HTTPException(status_code=404, detail="Photo ZIP not found")
+
+    return store.serve(zip_key, media_type="application/zip", filename=f"photos_{job_id}.zip")
+
+
 # --- REPORT ---
 
 @router.get("/{job_id}/report")

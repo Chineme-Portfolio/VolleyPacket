@@ -83,6 +83,7 @@ def run_email_send(job: Job, provider: EmailProvider, from_name: str, from_email
                 if job.should_stop("emails"):
                     task.status = "cancelled"
                     task.phase = "cancelled"
+                    job.update_status_from_tasks()
                     job.save()
                     logger.info(f"[email_send] Job {job.job_id}: cancelled at {idx}/{len(data)}")
                     return
@@ -184,6 +185,7 @@ def run_email_send(job: Job, provider: EmailProvider, from_name: str, from_email
         store.save_local_file(log_path)
         task.status = "complete"
         task.phase = "complete"
+        job.update_status_from_tasks()
         job.save()
         logger.info(f"[email_send] Job {job.job_id}: complete — {task.emails_sent} sent, {task.emails_failed} failed")
 
@@ -192,6 +194,7 @@ def run_email_send(job: Job, provider: EmailProvider, from_name: str, from_email
         task.status = "failed"
         task.error = str(e)
         try:
+            job.update_status_from_tasks()
             job.save()
         except Exception:
             logger.error(f"[email_send] Job {job.job_id}: failed to save error state")

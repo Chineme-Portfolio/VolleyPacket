@@ -161,6 +161,29 @@ class Job:
         # Logs
         self.log_path = None
 
+    def update_status_from_tasks(self):
+        """Compute job-level status from individual task states.
+
+        Rules:
+        1. Any task running → job is running
+        2. No task running but at least one paused → job is paused
+        3. All tasks complete → job is complete
+        4. Otherwise (mix of created/cancelled/failed) → keep current or created
+        """
+        statuses = [t.status for t in self.tasks.values()]
+        phases = [t.phase for t in self.tasks.values()]
+
+        if "running" in statuses:
+            self.status = "running"
+        elif any(p == "paused" for p in phases):
+            self.status = "paused"
+        elif all(s in ("complete", "completed") for s in statuses):
+            self.status = "complete"
+        elif any(s == "failed" for s in statuses) and not any(s == "running" for s in statuses):
+            # At least one failed, none running
+            self.status = "failed"
+        # Otherwise keep current status (created, cancelled, etc.)
+
     def to_response(self) -> JobResponse:
         return JobResponse(
             job_id=self.job_id,

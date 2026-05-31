@@ -15,6 +15,7 @@ import {
   resumeTask,
   cancelTask,
   getPdfDownloadUrl,
+  getPhotosDownloadUrl,
   downloadFile,
   TaskStatus,
 } from "@/lib/api";
@@ -270,6 +271,25 @@ export default function TaskPanel({ jobId, taskKey, initialTask, canStart, isTer
             className="flex-1 px-4 py-2 text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded-xl hover:bg-green-100 transition-colors disabled:opacity-50"
           >
             {actionLoading === "download" ? "Downloading..." : "Download ZIP"}
+          </button>
+        )}
+
+        {taskKey === "photos" && isComplete && task.photos_downloaded > 0 && (
+          <button
+            onClick={async () => {
+              setActionLoading("download");
+              try {
+                await downloadFile(getPhotosDownloadUrl(jobId), `photos_${jobId}.zip`);
+              } catch (err) {
+                toast(friendlyError(err));
+              } finally {
+                setActionLoading(null);
+              }
+            }}
+            disabled={actionLoading === "download"}
+            className="flex-1 px-4 py-2 text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded-xl hover:bg-green-100 transition-colors disabled:opacity-50"
+          >
+            {actionLoading === "download" ? "Downloading..." : "Download Photos ZIP"}
           </button>
         )}
 

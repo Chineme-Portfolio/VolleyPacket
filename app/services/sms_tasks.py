@@ -87,6 +87,7 @@ def run_sms_send(job: Job):
                 if job.should_stop("sms"):
                     task.status = "cancelled"
                     task.phase = "cancelled"
+                    job.update_status_from_tasks()
                     job.save()
                     return
 
@@ -131,6 +132,7 @@ def run_sms_send(job: Job):
         store.save_local_file(log_path)
         task.status = "complete"
         task.phase = "complete"
+        job.update_status_from_tasks()
         job.save()
 
         logger.info(f"[sms_send] Job {job.job_id}: complete — {task.sms_sent} sent, {task.sms_failed} failed, {task.sms_skipped} skipped")
@@ -140,6 +142,7 @@ def run_sms_send(job: Job):
         task.status = "failed"
         task.error = str(e)
         try:
+            job.update_status_from_tasks()
             job.save()
         except Exception:
             logger.error(f"[sms_send] Job {job.job_id}: failed to save error state")

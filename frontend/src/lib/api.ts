@@ -212,6 +212,10 @@ export function getPdfDownloadUrl(jobId: string): string {
   return `${API_BASE}/jobs/${jobId}/pdfs/download`;
 }
 
+export function getPhotosDownloadUrl(jobId: string): string {
+  return `${API_BASE}/jobs/${jobId}/photos/zip`;
+}
+
 export function getReportUrl(jobId: string): string {
   return `${API_BASE}/jobs/${jobId}/report`;
 }
