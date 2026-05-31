@@ -24,6 +24,12 @@ from app.dependencies import get_current_user
 from app.database import UserRow, EmailSettingsRow, get_session
 from app.services.encryption import decrypt_credentials
 from app.services.email_providers import create_provider
+from app.services.billing import (
+    check_job_limit,
+    check_row_limit,
+    check_template_access,
+    get_user_tier,
+)
 from app import config
 
 router = APIRouter()
@@ -116,6 +122,23 @@ async def create_new_job(
         data = load_data(save_path)
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Failed to read file: {e}")
+
+    # ── Tier guard: active job limit ──
+    existing_jobs = list_jobs_for_user(user.id)
+    if not check_job_limit(user.id, len(existing_jobs)):
+        raise HTTPException(
+            status_code=403,
+            detail="You've reached your active job limit. Delete a completed job or upgrade your plan.",
+        )
+
+    # ── Tier guard: row limit (with image link detection) ──
+    columns = list(data.columns)
+    allowed, max_rows = check_row_limit(user.id, len(data), columns)
+    if not allowed:
+        raise HTTPException(
+            status_code=403,
+            detail=f"This spreadsheet has {len(data):,} rows, which exceeds your plan's limit of {max_rows:,} rows per job. Upgrade your plan for higher limits.",
+        )
 
     try:
         job = create_job(candidate_file=candidate_file.filename, data=data, owner_id=user.id)
@@ -295,6 +318,15 @@ async def reupload_data(
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Failed to read file: {e}")
 
+    # ── Tier guard: row limit on re-upload ──
+    columns = list(data.columns)
+    allowed, max_rows = check_row_limit(user.id, len(data), columns)
+    if not allowed:
+        raise HTTPException(
+            status_code=403,
+            detail=f"This spreadsheet has {len(data):,} rows, which exceeds your plan's limit of {max_rows:,} rows per job. Upgrade your plan for higher limits.",
+        )
+
     # Replace data without resetting completed tasks
     job.data = data
     job.columns = list(data.columns)
@@ -320,7 +352,18 @@ def attach_template(job_id: str, request: AttachTemplateRequest, user: UserRow =
         if not store.exists(tpl_key):
             raise HTTPException(status_code=404, detail=f"Template '{safe_id}' not found")
         tpl_data = store.load_bytes(tpl_key)
-        job.template = TemplateConfig(**json.loads(tpl_data))
+        tpl_config = json.loads(tpl_data)
+
+        # ── Tier guard: check user can access this template's tier ──
+        tpl_tier = tpl_config.get("tier_required", "free")
+        user_tier = get_user_tier(user.id)
+        if not check_template_access(user_tier, tpl_tier):
+            raise HTTPException(
+                status_code=403,
+                detail=f"This template requires the {tpl_tier} plan or higher. Upgrade to use it.",
+            )
+
+        job.template = TemplateConfig(**tpl_config)
         job.template_id = safe_id
 
     elif request.template:

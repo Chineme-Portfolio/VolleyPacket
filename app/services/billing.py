@@ -18,12 +18,15 @@ TIERS = {
             "NGN": {"price_monthly": 0, "currency_symbol": "₦"},
         },
         "max_active_jobs": 3,
+        "max_rows": 5000,               # No image links
+        "max_rows_with_images": 3000,    # Has image/photo links
         "ai_chat_messages": 10,
         "template_access": "free",
         "can_publish_templates": False,
         "email_support": False,
         "features": [
-            "3 active jobs (delete to make room)",
+            "3 active jobs",
+            "Up to 5,000 recipients per job",
             "10 AI chat messages/month",
             "Free-tier templates only",
             "Community support",
@@ -36,12 +39,15 @@ TIERS = {
             "NGN": {"price_monthly": 8500, "currency_symbol": "₦"},
         },
         "max_active_jobs": None,
+        "max_rows": 10000,              # No image links
+        "max_rows_with_images": 7000,   # Has image/photo links
         "ai_chat_messages": 100,
         "template_access": "all",
         "can_publish_templates": True,
         "email_support": True,
         "features": [
             "Unlimited jobs",
+            "Up to 10,000 recipients per job",
             "100 AI chat messages/month",
             "All templates",
             "Publish templates to community",
@@ -55,12 +61,15 @@ TIERS = {
             "NGN": {"price_monthly": 23500, "currency_symbol": "₦"},
         },
         "max_active_jobs": None,
+        "max_rows": None,               # Unlimited
+        "max_rows_with_images": None,   # Unlimited
         "ai_chat_messages": None,
         "template_access": "all",
         "can_publish_templates": True,
         "email_support": True,
         "features": [
             "Unlimited jobs",
+            "Unlimited recipients per job",
             "Unlimited AI chat",
             "All templates",
             "Publish templates to community",
@@ -137,6 +146,36 @@ def check_job_limit(user_id: str, current_job_count: int) -> bool:
     if max_jobs is None:
         return True
     return current_job_count < max_jobs
+
+
+def check_row_limit(user_id: str, row_count: int, columns: list[str]) -> tuple[bool, int | None]:
+    """
+    Check if the uploaded data is within the user's tier row limit.
+    Returns (allowed, max_rows).
+    max_rows=None means unlimited.
+
+    Image link detection: if any column looks like it holds photo/image URLs,
+    we use the stricter max_rows_with_images limit (more compute for downloads + storage).
+    """
+    tier = get_user_tier(user_id)
+    limits = get_tier_limits(tier)
+
+    # Detect columns that likely contain image/photo links
+    image_col_patterns = {"photo", "image", "picture", "headshot", "avatar", "logo"}
+    has_image_links = any(
+        any(pattern in col.lower() for pattern in image_col_patterns)
+        for col in columns
+    )
+
+    if has_image_links:
+        max_rows = limits.get("max_rows_with_images")
+    else:
+        max_rows = limits.get("max_rows")
+
+    if max_rows is None:
+        return True, None
+
+    return row_count <= max_rows, max_rows
 
 
 def check_template_access(user_tier: str, template_tier_required: str) -> bool:
