@@ -63,7 +63,8 @@ RULES:
 - Use a professional font stack: Arial, sans-serif
 - Body color: #2C2C2C, line-height: 1.6
 - Do NOT include <html> or <head> tags — just the <body> inner content wrapped in a div
-- End with a signature using {{sender_name}} and {{sender_title}}"""
+- End with a signature using {{sender_name}} and {{sender_title}}
+- Include a small footer line below the signature: "Powered by VolleyPacket.com" — omit only if the user explicitly asks to remove it."""
 
     user_prompt = req.prompt
     if req.context:

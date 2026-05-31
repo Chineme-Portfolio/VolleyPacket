@@ -39,7 +39,8 @@ DESIGN RULES:
 - Design for PRINT, not screen. Think formal letters, event invitations, certificates, reports.
 - Use color creatively — backgrounds, accent bars, borders, colored headers. Don't just make everything black and white.
 - Make it look professional and polished — like something from a real organization.
-- Include a footer with the organization info and "Powered by VolleyPacket" credit.
+- The ENTIRE template must fit on ONE page. Do not design content that overflows onto a second page.
+- Include a footer with "Powered by VolleyPacket.com" unless the user explicitly requests otherwise.
 
 IMAGE RULES:
 - If the user uploads a logo, letterhead, or design image, use the placeholder {EMBEDDED_IMAGE_1} as the src for an <img> tag where that image should appear. The system will replace it with the actual image data automatically.
