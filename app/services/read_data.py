@@ -26,7 +26,10 @@ def load_data(file_path):
     if ext == ".csv":
         data_frame = pd.read_csv(file_path, header=header_row)
     else:
-        data_frame = pd.read_excel(file_path, header=header_row)
+        # Read all cells as strings first to preserve original formatting
+        # (prevents pandas from turning "08065140173" into 8065140173.0
+        # and "June 8, 2026" into 2026-06-08 00:00:00)
+        data_frame = pd.read_excel(file_path, header=header_row, dtype=str)
 
     data_frame.columns = data_frame.columns.str.strip()
 
@@ -112,11 +115,16 @@ def load_data(file_path):
     elif last_name_col:
         data_frame = data_frame.rename(columns={last_name_col: "Name"})
 
-    data_frame = data_frame.fillna('')
+    # Convert datetime columns to readable strings BEFORE fillna
+    # Pandas auto-detects dates from Excel and turns them into datetime64,
+    # which renders as "2026-06-08 00:00:00" instead of "June, 8 2026".
+    for col in data_frame.columns:
+        if pd.api.types.is_datetime64_any_dtype(data_frame[col]):
+            # Format dates cleanly — drop the time component if it's midnight
+            data_frame[col] = data_frame[col].apply(
+                lambda x: x.strftime("%B %d, %Y") if pd.notna(x) else ""
+            )
 
-    if 'ExamDate' in data_frame.columns:
-        data_frame['ExamDate'] = pd.to_datetime(
-            data_frame['ExamDate'], errors='coerce'
-        )
+    data_frame = data_frame.fillna('')
 
     return data_frame
