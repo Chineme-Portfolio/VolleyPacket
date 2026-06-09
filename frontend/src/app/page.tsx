@@ -202,6 +202,7 @@ export default function LandingPage() {
             <a href="#features" className="hover:text-gray-900 transition-colors">Features</a>
             <a href="#how-it-works" className="hover:text-gray-900 transition-colors">How It Works</a>
             <a href="#pricing" className="hover:text-gray-900 transition-colors">Pricing</a>
+            <Link href="/blog" className="hover:text-gray-900 transition-colors">Blog</Link>
           </div>
           <div className="flex items-center gap-3">
             <Link href="/login" className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">
@@ -595,6 +596,7 @@ export default function LandingPage() {
                 <li><a href="#" className="hover:text-white transition-colors">Documentation</a></li>
                 <li><a href="#" className="hover:text-white transition-colors">API Reference</a></li>
                 <li><a href="#" className="hover:text-white transition-colors">Setup Guides</a></li>
+                <li><Link href="/blog" className="hover:text-white transition-colors">Blog</Link></li>
               </ul>
             </div>
             <div>

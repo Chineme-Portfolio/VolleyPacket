@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
 import Sidebar from "@/components/Sidebar";
 import Topbar from "@/components/Topbar";
 
+const PUBLIC_PREFIXES = ["/blog"];
 const PUBLIC_PAGES = ["/login", "/signup", "/"];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -13,8 +14,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const { loading } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Auth pages — no sidebar/topbar
-  if (PUBLIC_PAGES.includes(pathname)) {
+  // Auth pages and public content — no sidebar/topbar
+  if (PUBLIC_PAGES.includes(pathname) || PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) {
     return <>{children}</>;
   }
 
