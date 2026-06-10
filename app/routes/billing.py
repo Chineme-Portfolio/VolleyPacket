@@ -381,6 +381,7 @@ async def stripe_webhook(request: Request):
 
     event_type = event["type"]
     data = event["data"]["object"]
+    logger.info(f"Stripe webhook received: {event_type} ({event.get('id')})")
 
     try:
         if event_type == "checkout.session.completed":
@@ -391,22 +392,29 @@ async def stripe_webhook(request: Request):
             _handle_stripe_subscription_deleted(data)
         elif event_type == "invoice.payment_failed":
             _handle_stripe_payment_failed(data)
-    except Exception as e:
-        logger.error(f"Stripe webhook handler error: {e}")
+    except Exception:
+        # logger.exception includes the full traceback
+        logger.exception(f"Stripe webhook handler error for {event_type}")
         # Return 200 anyway so Stripe doesn't keep retrying
 
     return {"received": True}
 
 
 def _handle_stripe_checkout(session_data: dict):
-    user_id = session_data.get("metadata", {}).get("user_id")
-    tier = session_data.get("metadata", {}).get("tier")
+    metadata = session_data.get("metadata") or {}
+    user_id = metadata.get("user_id")
+    tier = metadata.get("tier")
     subscription_id = session_data.get("subscription")
     customer_id = session_data.get("customer")
 
     if not user_id or not tier:
+        logger.warning(
+            f"checkout.session.completed missing metadata "
+            f"(user_id={user_id!r}, tier={tier!r}, session={session_data.get('id')!r}) — skipping"
+        )
         return
 
+    logger.info(f"Upgrading user {user_id} to {tier} (sub={subscription_id})")
     update_user_tier(user_id, tier)
 
     db_session = get_session()
