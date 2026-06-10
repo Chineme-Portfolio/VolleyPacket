@@ -3,6 +3,7 @@ Dual billing routes: Stripe (international) + Paystack (Nigeria).
 Provider is chosen based on user's region.
 """
 
+import json
 import uuid
 import logging
 from datetime import datetime
@@ -371,7 +372,7 @@ async def stripe_webhook(request: Request):
         raise HTTPException(status_code=503, detail="Webhook secret not configured")
 
     try:
-        event = stripe.Webhook.construct_event(
+        stripe.Webhook.construct_event(
             payload, sig_header, config.STRIPE_WEBHOOK_SECRET
         )
     except ValueError:
@@ -379,6 +380,10 @@ async def stripe_webhook(request: Request):
     except stripe.SignatureVerificationError:
         raise HTTPException(status_code=400, detail="Invalid signature")
 
+    # Handle the event as plain dicts — StripeObject in newer stripe
+    # versions doesn't support dict methods like .get(), which every
+    # handler below relies on
+    event = json.loads(payload)
     event_type = event["type"]
     data = event["data"]["object"]
     logger.info(f"Stripe webhook received: {event_type} ({event.get('id')})")
