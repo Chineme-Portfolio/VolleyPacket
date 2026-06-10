@@ -58,10 +58,22 @@ def _get_or_create_stripe_customer(user: UserRow) -> str:
     session = get_session()
     try:
         sub = session.query(SubscriptionRow).filter_by(user_id=user.id).first()
-        if sub and sub.stripe_customer_id:
-            return sub.stripe_customer_id
+        stored_id = sub.stripe_customer_id if sub else None
     finally:
         session.close()
+
+    # Verify the stored customer still exists in the current Stripe account.
+    # IDs created in test mode (or a different account) are stale once live
+    # keys are in use — clear them and create a fresh customer instead.
+    if stored_id:
+        try:
+            customer = stripe.Customer.retrieve(stored_id)
+            if not getattr(customer, "deleted", False):
+                return stored_id
+        except stripe.InvalidRequestError:
+            logger.warning(
+                f"Stale Stripe customer {stored_id} for user {user.id} — creating a new one"
+            )
 
     customer = stripe.Customer.create(
         email=user.email,
@@ -331,12 +343,13 @@ def create_portal_session(user: UserRow = Depends(get_current_user)):
     else:
         if not config.STRIPE_SECRET_KEY:
             raise HTTPException(status_code=503, detail="Stripe is not configured")
-        if not sub.stripe_customer_id:
-            raise HTTPException(status_code=400, detail="No Stripe customer found.")
+
+        # Validates the stored customer ID and recreates it if stale
+        customer_id = _get_or_create_stripe_customer(user)
 
         try:
             portal_session = stripe.billing_portal.Session.create(
-                customer=sub.stripe_customer_id,
+                customer=customer_id,
                 return_url=f"{config.FRONTEND_URL}/settings/billing",
             )
         except stripe.StripeError as e:
