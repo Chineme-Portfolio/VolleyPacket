@@ -381,6 +381,18 @@ export async function createPortalSession(): Promise<{ portal_url: string }> {
   return fetchJSON("/billing/portal", { method: "POST" });
 }
 
+export async function cancelSubscription(): Promise<{ message: string; cancel_at_period_end: boolean }> {
+  return fetchJSON("/billing/cancel", { method: "POST" });
+}
+
+export async function resumeSubscription(): Promise<{ message: string; cancel_at_period_end: boolean }> {
+  return fetchJSON("/billing/resume", { method: "POST" });
+}
+
+export async function deleteAccount(): Promise<{ message: string }> {
+  return fetchJSON("/auth/me", { method: "DELETE" });
+}
+
 
 // ── Job Mode & Email Content ─────────────────────────────────────────
 

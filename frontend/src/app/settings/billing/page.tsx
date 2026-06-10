@@ -11,6 +11,8 @@ import {
   resetUserRegion,
   createCheckout,
   createPortalSession,
+  cancelSubscription,
+  resumeSubscription,
   TierInfo,
   Subscription,
 } from "@/lib/api";
@@ -55,6 +57,8 @@ export default function BillingPage() {
   const [portalLoading, setPortalLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [resettingRegion, setResettingRegion] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [cancelLoading, setCancelLoading] = useState(false);
 
   const success = searchParams.get("success");
   const cancelled = searchParams.get("cancelled");
@@ -102,6 +106,35 @@ export default function BillingPage() {
     } catch (err) {
       setMessage({ type: "error", text: friendlyError(err) });
       setPortalLoading(false);
+    }
+  }
+
+  async function handleCancelSubscription() {
+    setCancelLoading(true);
+    setMessage(null);
+    try {
+      const result = await cancelSubscription();
+      setMessage({ type: "success", text: result.message });
+      setSubscription(await getSubscription());
+      setShowCancelConfirm(false);
+    } catch (err) {
+      setMessage({ type: "error", text: friendlyError(err) });
+    } finally {
+      setCancelLoading(false);
+    }
+  }
+
+  async function handleResumeSubscription() {
+    setCancelLoading(true);
+    setMessage(null);
+    try {
+      const result = await resumeSubscription();
+      setMessage({ type: "success", text: result.message });
+      setSubscription(await getSubscription());
+    } catch (err) {
+      setMessage({ type: "error", text: friendlyError(err) });
+    } finally {
+      setCancelLoading(false);
     }
   }
 
@@ -196,15 +229,68 @@ export default function BillingPage() {
           )}
         </div>
         {currentTier !== "free" && (
-          <button
-            onClick={handleManageBilling}
-            disabled={portalLoading}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50"
-          >
-            {portalLoading ? "Opening..." : "Manage Billing"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleManageBilling}
+              disabled={portalLoading}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50"
+            >
+              {portalLoading ? "Opening..." : "Manage Billing"}
+            </button>
+            {subscription?.cancel_at_period_end ? (
+              <button
+                onClick={handleResumeSubscription}
+                disabled={cancelLoading}
+                className="px-4 py-2 text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded-xl hover:bg-green-100 transition-colors disabled:opacity-50"
+              >
+                {cancelLoading ? "Resuming..." : "Resume Subscription"}
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowCancelConfirm(true)}
+                disabled={cancelLoading}
+                className="px-4 py-2 text-sm font-medium text-red-600 bg-white border border-red-200 rounded-xl hover:bg-red-50 transition-colors disabled:opacity-50"
+              >
+                Cancel Subscription
+              </button>
+            )}
+          </div>
         )}
       </div>
+
+      {/* Cancel confirmation modal */}
+      {showCancelConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Cancel your subscription?</h3>
+            <p className="text-sm text-gray-600 mb-1">
+              You&apos;ll keep <span className="font-semibold capitalize">{currentTier}</span> access until the end of
+              your current billing period{subscription?.current_period_end && (
+                <> ({new Date(subscription.current_period_end).toLocaleDateString()})</>
+              )}, then your account moves to the Free plan.
+            </p>
+            <p className="text-sm text-gray-600 mb-5">
+              Your jobs and templates are kept. You can resume anytime before the period ends.
+            </p>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setShowCancelConfirm(false)}
+                disabled={cancelLoading}
+                className="flex-1 px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                Keep Subscription
+              </button>
+              <button
+                onClick={handleCancelSubscription}
+                disabled={cancelLoading}
+                className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-red-600 rounded-xl hover:bg-red-700 transition-colors disabled:opacity-50"
+              >
+                {cancelLoading ? "Cancelling..." : "Yes, Cancel"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Pricing cards */}
       {tiers && (

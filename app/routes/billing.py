@@ -359,6 +359,113 @@ def create_portal_session(user: UserRow = Depends(get_current_user)):
         return {"portal_url": portal_session.url}
 
 
+# ── Cancel / Resume ──────────────────────────────────────────────────
+
+
+def _get_paid_subscription(user_id: str) -> SubscriptionRow:
+    session = get_session()
+    try:
+        sub = session.query(SubscriptionRow).filter_by(user_id=user_id).first()
+    finally:
+        session.close()
+    if not sub or sub.tier == "free":
+        raise HTTPException(status_code=400, detail="No active paid subscription found.")
+    return sub
+
+
+def _set_cancel_flag(user_id: str, value: bool):
+    session = get_session()
+    try:
+        row = session.query(SubscriptionRow).filter_by(user_id=user_id).first()
+        if row:
+            row.cancel_at_period_end = value
+            row.updated_at = datetime.utcnow()
+            session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def _cancel_at_provider(sub: SubscriptionRow, immediately: bool = False):
+    """Cancel a subscription with the payment provider. Raises HTTPException on failure."""
+    provider = getattr(sub, "payment_provider", "stripe")
+
+    if provider == "paystack":
+        sub_code = getattr(sub, "paystack_subscription_code", None)
+        if not sub_code:
+            raise HTTPException(status_code=400, detail="No Paystack subscription found.")
+        try:
+            ps_sub = ps.get_subscription(sub_code)
+            email_token = ps_sub.get("email_token", "")
+            if not ps.disable_subscription(sub_code, email_token):
+                raise ValueError("Paystack rejected the cancellation")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Paystack error: {str(e)}")
+    else:
+        if not sub.stripe_subscription_id:
+            raise HTTPException(status_code=400, detail="No Stripe subscription found.")
+        try:
+            if immediately:
+                stripe.Subscription.cancel(sub.stripe_subscription_id)
+            else:
+                stripe.Subscription.modify(
+                    sub.stripe_subscription_id, cancel_at_period_end=True
+                )
+        except stripe.StripeError as e:
+            raise HTTPException(status_code=502, detail=f"Stripe error: {str(e)}")
+
+
+@router.post("/cancel")
+def cancel_subscription(user: UserRow = Depends(get_current_user)):
+    """Cancel the active subscription at the end of the billing period."""
+    sub = _get_paid_subscription(user.id)
+    _cancel_at_provider(sub)
+    _set_cancel_flag(user.id, True)
+    logger.info(f"User {user.id} cancelled subscription (at period end)")
+    return {
+        "message": "Subscription cancelled. You keep access until the end of the billing period.",
+        "cancel_at_period_end": True,
+    }
+
+
+@router.post("/resume")
+def resume_subscription(user: UserRow = Depends(get_current_user)):
+    """Undo a pending cancellation before the period ends."""
+    sub = _get_paid_subscription(user.id)
+    provider = getattr(sub, "payment_provider", "stripe")
+
+    if provider == "paystack":
+        sub_code = getattr(sub, "paystack_subscription_code", None)
+        if not sub_code:
+            raise HTTPException(status_code=400, detail="No Paystack subscription found.")
+        try:
+            ps_sub = ps.get_subscription(sub_code)
+            email_token = ps_sub.get("email_token", "")
+            if not ps.enable_subscription(sub_code, email_token):
+                raise ValueError("Paystack rejected the request")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Paystack error: {str(e)}")
+    else:
+        if not sub.stripe_subscription_id:
+            raise HTTPException(status_code=400, detail="No Stripe subscription found.")
+        try:
+            stripe.Subscription.modify(
+                sub.stripe_subscription_id, cancel_at_period_end=False
+            )
+        except stripe.StripeError as e:
+            raise HTTPException(status_code=502, detail=f"Stripe error: {str(e)}")
+
+    _set_cancel_flag(user.id, False)
+    logger.info(f"User {user.id} resumed subscription")
+    return {"message": "Subscription resumed. It will renew as normal.", "cancel_at_period_end": False}
+
+
 # ── Stripe Webhook ───────────────────────────────────────────────────
 
 

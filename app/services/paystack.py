@@ -78,6 +78,13 @@ def disable_subscription(subscription_code: str, email_token: str) -> bool:
     return resp.status_code == 200
 
 
+def enable_subscription(subscription_code: str, email_token: str) -> bool:
+    """Re-enable a previously disabled subscription."""
+    payload = {"code": subscription_code, "token": email_token}
+    resp = requests.post(f"{BASE_URL}/subscription/enable", json=payload, headers=_headers(), timeout=15)
+    return resp.status_code == 200
+
+
 def get_manage_subscription_link(subscription_code: str) -> str:
     """
     Get the Paystack subscription management link.

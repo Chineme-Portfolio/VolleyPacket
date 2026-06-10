@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel, EmailStr
 
@@ -9,9 +11,10 @@ from app.services.auth import (
     verify_google_token,
 )
 from app.dependencies import get_current_user
-from app.database import UserRow
+from app.database import get_session, UserRow, SubscriptionRow
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 # ── Request / Response models ─────────────────────────────────────────
@@ -132,3 +135,41 @@ def get_me(user: UserRow = Depends(get_current_user)):
         auth_provider=user.auth_provider,
         tier=getattr(user, "tier", "free") or "free",
     )
+
+
+@router.delete("/me")
+def delete_account(user: UserRow = Depends(get_current_user)):
+    """Permanently delete the account and all associated data.
+
+    Any active paid subscription is cancelled with the payment provider
+    first so billing stops — if that fails, the deletion is aborted so
+    the user is never left paying for a deleted account.
+    """
+    session = get_session()
+    try:
+        sub = session.query(SubscriptionRow).filter_by(user_id=user.id).first()
+        has_paid_sub = bool(sub and sub.tier != "free" and sub.status == "active")
+    finally:
+        session.close()
+
+    if has_paid_sub:
+        # Imported here to avoid a circular import at module load
+        from app.routes.billing import _cancel_at_provider
+
+        _cancel_at_provider(sub, immediately=True)
+        logger.info(f"Cancelled {sub.payment_provider} subscription for {user.id} before account deletion")
+
+    session = get_session()
+    try:
+        row = session.get(UserRow, user.id)
+        if row:
+            session.delete(row)  # jobs, templates, subscriptions cascade
+            session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+    logger.info(f"Account deleted: {user.id} ({user.email})")
+    return {"message": "Account deleted."}
