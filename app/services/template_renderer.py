@@ -64,10 +64,31 @@ def render_preview(template: TemplateConfig, output_path: str):
     return render_pdf(template, sample_row, output_path)
 
 
+_PAGE_MARGIN_RE = re.compile(r"@page\b[^{]*\{[^}]*?\bmargin\s*:\s*([^;}]+)", re.IGNORECASE)
+
+
+def add_preview_page_margins(html: str) -> str:
+    """Reproduce the template's @page margin on screen for HTML previews.
+
+    @page margins are PRINT-only: WeasyPrint honors them in the generated PDF, but a
+    browser rendering the same HTML in an <iframe> ignores them, so the on-screen
+    preview shows content flush against the page edge while the downloaded PDF has
+    margins. This injects a screen-only style that pads the page by the same margin so
+    the preview matches the PDF. It never touches the stored template or the PDF path
+    (which uses the raw html_content), and @media screen is inert in WeasyPrint.
+    """
+    m = _PAGE_MARGIN_RE.search(html)
+    margin = m.group(1).strip() if m else "15mm 20mm"
+    style = f"<style>@media screen{{html{{box-sizing:border-box;padding:{margin};background:#fff}}}}</style>"
+    if "</head>" in html:
+        return html.replace("</head>", style + "</head>", 1)
+    return style + html
+
+
 def render_html_preview(template: TemplateConfig) -> str:
     """Return HTML with sample data filled in (for iframe preview, no PDF)."""
     sample_row = {}
     for p in template.placeholders:
         sample_row[p] = f'<span style="background:#fef3c7;padding:1px 4px;border-radius:3px;font-weight:600;">{p}</span>'
 
-    return fill_placeholders(template.html_content, sample_row)
+    return add_preview_page_margins(fill_placeholders(template.html_content, sample_row))

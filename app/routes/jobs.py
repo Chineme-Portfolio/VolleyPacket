@@ -21,7 +21,7 @@ from app.services.photo_tasks import start_photo_download
 from app.services.report_tasks import generate_report
 from app.services.storage import store
 from app.services.ai_generator import edit_template_with_ai, extract_placeholders
-from app.services.template_renderer import fill_placeholders, render_html_preview
+from app.services.template_renderer import fill_placeholders, render_html_preview, add_preview_page_margins
 from app.dependencies import get_current_user
 from app.database import UserRow, EmailSettingsRow, get_session
 from app.services.encryption import decrypt_credentials
@@ -507,7 +507,7 @@ def preview_job_template(job_id: str, user: UserRow = Depends(get_current_user))
 
     rows = _job_sample_rows(job, 1)
     if rows:
-        html = fill_placeholders(job.template.html_content, rows[0])
+        html = add_preview_page_margins(fill_placeholders(job.template.html_content, rows[0]))
     else:
         html = render_html_preview(job.template)  # highlight placeholders when there's no data
     return HTMLResponse(content=html, status_code=200)
