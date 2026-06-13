@@ -53,31 +53,6 @@ def health_check():
     return {"status": "ok", "app": "VolleyPacket", "version": "2.1.0"}
 
 
-@app.get("/debug/db")
-def debug_db():
-    """Temporary diagnostic endpoint — check DB table state."""
-    from app.database import get_session
-    from sqlalchemy import text
-    session = get_session()
-    try:
-        # Check which tables exist
-        result = session.execute(text(
-            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
-        ))
-        tables = [row[0] for row in result]
-        return {"tables": tables, "has_jobs": "jobs" in tables}
-    except Exception as e:
-        # SQLite fallback
-        try:
-            result = session.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
-            tables = [row[0] for row in result]
-            return {"tables": tables, "has_jobs": "jobs" in tables, "db": "sqlite"}
-        except Exception as e2:
-            return {"error": str(e), "sqlite_error": str(e2)}
-    finally:
-        session.close()
-
-
 # Public
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])
 
