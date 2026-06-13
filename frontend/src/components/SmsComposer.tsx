@@ -90,7 +90,7 @@ export default function SmsComposer({ jobId, columns, initialBody, onSaved }: Sm
                   key={col}
                   type="button"
                   onClick={() => insertPlaceholder(col)}
-                  className="px-2 py-1 text-xs font-mono text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors"
+                  className="px-2 py-0.5 text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded-md font-mono hover:bg-amber-100 transition-colors"
                 >
                   {`{${col}}`}
                 </button>
