@@ -9,6 +9,7 @@ import EmailComposer from "@/components/EmailComposer";
 import SmsComposer from "@/components/SmsComposer";
 import ColumnMapper from "@/components/ColumnMapper";
 import TemplateSelector from "@/components/TemplateSelector";
+import JobTemplateEditor from "@/components/JobTemplateEditor";
 import TaskPanel from "@/components/TaskPanel";
 import {
   getJob,
@@ -270,6 +271,19 @@ export default function JobDetailPage() {
           <TemplateSelector
             jobId={jobId}
             currentTemplateId={job.template_id}
+            disabled={hasRunning}
+            onChanged={() => loadJob()}
+          />
+        </div>
+      )}
+
+      {/* In-job template editor (dynamic PDF jobs only — the template is what gets rendered) */}
+      {!isTerminal && job.template_id && jobMode === "dynamic_pdf" && (
+        <div className="mb-6">
+          <JobTemplateEditor
+            jobId={jobId}
+            columns={job.columns}
+            templateId={job.template_id}
             disabled={hasRunning}
             onChanged={() => loadJob()}
           />

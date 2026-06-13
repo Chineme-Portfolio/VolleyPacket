@@ -475,6 +475,65 @@ export async function setSmsContent(
 }
 
 
+// ── In-Job Template Editing ─────────────────────────────────────────
+
+export interface JobTemplate {
+  id: string;
+  name: string;
+  description: string;
+  html_content: string;
+  placeholders: string[];
+}
+
+export interface JobTemplateChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/** The job-local template fork (editable copy; never the shared library template). */
+export async function getJobTemplate(jobId: string): Promise<JobTemplate> {
+  return fetchJSON(`/jobs/${jobId}/template`);
+}
+
+/** Save edited HTML to the job-local template (HTML + rich-text tabs). */
+export async function saveJobTemplate(jobId: string, htmlContent: string): Promise<JobTemplate> {
+  return fetchJSON(`/jobs/${jobId}/template`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ html_content: htmlContent }),
+  });
+}
+
+/** Edit the job-local template via AI. Pass the full client-held chat transcript. */
+export async function aiEditJobTemplate(
+  jobId: string,
+  messages: JobTemplateChatMessage[],
+): Promise<{ template: JobTemplate; summary: string }> {
+  return fetchJSON(`/jobs/${jobId}/template/ai-edit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages }),
+  });
+}
+
+/** Discard in-job edits, re-forking from the original library template. */
+export async function resetJobTemplate(jobId: string): Promise<JobTemplate> {
+  return fetchJSON(`/jobs/${jobId}/template/reset`, { method: "POST" });
+}
+
+/**
+ * Fetch the job template rendered with the first real data row, as an object URL
+ * for an iframe `src`. Uses a Blob (not a data: URL) because templates can embed
+ * megabytes of base64 images. Caller must URL.revokeObjectURL() the returned URL.
+ */
+export async function getJobTemplatePreviewUrl(jobId: string): Promise<string> {
+  const res = await fetchAPI(`/jobs/${jobId}/template/preview`);
+  const html = await res.text();
+  const blob = new Blob([html], { type: "text/html" });
+  return URL.createObjectURL(blob);
+}
+
+
 // ── Email Provider Status ───────────────────────────────────────────
 
 export interface EmailProviderStatus {

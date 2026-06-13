@@ -27,6 +27,51 @@ def _detect_media_type_from_b64(b64_data: str, fallback: str = "image/png") -> s
     return fallback
 
 
+# Matches an inline base64 image data URI (e.g. the src of an embedded logo).
+_DATA_URI_RE = re.compile(r"data:image/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]+")
+
+
+def strip_embedded_images(html: str) -> tuple[str, dict[str, str]]:
+    """Replace inline base64 image data URIs with {EMBEDDED_IMAGE_N} placeholders.
+
+    Returns (stripped_html, image_map). Used before showing template HTML to the
+    AI or the raw-HTML editor so megabytes of base64 never reach them (token blowup
+    / mangled images / unusable textarea). Re-inject with reinject_embedded_images.
+    Mirrors the {EMBEDDED_IMAGE_N} convention the generator already emits.
+    """
+    image_map: dict[str, str] = {}
+    counter = {"n": 0}
+
+    def repl(match):
+        counter["n"] += 1
+        token = f"EMBEDDED_IMAGE_{counter['n']}"
+        image_map[token] = match.group(0)
+        return "{" + token + "}"
+
+    stripped = _DATA_URI_RE.sub(repl, html)
+    return stripped, image_map
+
+
+def reinject_embedded_images(html: str, image_map: dict[str, str]) -> str:
+    """Replace {EMBEDDED_IMAGE_N} placeholders with their original base64 data URIs."""
+    if not image_map:
+        return html
+    for token, data_uri in image_map.items():
+        html = html.replace("{" + token + "}", data_uri)
+    return html
+
+
+def extract_placeholders(html: str) -> list[str]:
+    """Return the sorted {Placeholder} merge-field names used in an HTML template.
+
+    Excludes the internal {PhotoURL}/{PhotoLink} (per-row photos) and
+    {EMBEDDED_IMAGE_N} (embedded images) tokens, which are handled separately.
+    """
+    found = set(re.findall(r"\{([A-Za-z_]\w*)\}", html))
+    internal = {"PhotoURL", "PhotoLink"}
+    return sorted(p for p in found if p not in internal and not p.startswith("EMBEDDED_IMAGE_"))
+
+
 SYSTEM_PROMPT = """You are a professional document designer for VolleyPacket, a platform that generates personalized PDF letters and invitations.
 
 Given a user's description (and optionally parsed document content), design a COMPLETE, self-contained HTML/CSS template.
@@ -174,8 +219,8 @@ def generate_template_from_content(
     declared_placeholders = data.get("placeholders", [])
 
     # Post-process: replace {EMBEDDED_IMAGE_N} with actual base64 data URIs
-    for idx, data_uri in enumerate(image_data_uris, start=1):
-        html = html.replace(f"{{EMBEDDED_IMAGE_{idx}}}", data_uri)
+    image_map = {f"EMBEDDED_IMAGE_{i}": uri for i, uri in enumerate(image_data_uris, start=1)}
+    html = reinject_embedded_images(html, image_map)
 
     # Also scan the HTML for any {Placeholder} patterns the AI used
     found = set(re.findall(r"\{([A-Za-z_]\w*)\}", html))
@@ -192,3 +237,104 @@ def generate_template_from_content(
         html_content=html,
         placeholders=placeholders,
     )
+
+
+EDIT_SYSTEM_PROMPT = """You are editing an existing HTML/CSS document template for VolleyPacket, a platform that generates personalized PDF letters and invitations rendered with WeasyPrint.
+
+You are given the CURRENT template HTML and a conversation describing the change the user wants. EDIT the existing document — do NOT rebuild it from scratch.
+
+EDITING RULES:
+- Make ONLY the change the user asks for. Preserve all other markup, text, structure, and styling exactly as-is.
+- Keep every {EMBEDDED_IMAGE_N} placeholder (embedded logos/signatures/letterheads) and every {PhotoURL}/{PhotoLink} placeholder (per-row photos) intact and in place, unless the user explicitly asks to remove that image. NEVER invent or output base64 image data yourself.
+- Keep {Placeholder} merge fields working. Use ONLY the spreadsheet columns provided as placeholder names — do not introduce placeholders for columns that don't exist.
+- Keep the document a COMPLETE, single-page HTML document (<!DOCTYPE html> … </html>) with an @page rule for A4 sizing.
+
+WEASYPRINT / PRINT CONSTRAINTS (rendered to PDF, not shown in a browser):
+- All CSS stays in a <style> block in <head>. No external stylesheets, no web fonts.
+- Use only system fonts: Arial, Helvetica, Georgia, Times New Roman, Courier New, Verdana, Tahoma.
+- Avoid CSS WeasyPrint can't render (no reliance on flexbox/grid); prefer tables, block, inline-block, and floats for layout.
+- The result must still fit on ONE page.
+
+OUTPUT FORMAT:
+Return ONLY a JSON object:
+{
+  "html_content": "<!DOCTYPE html>…</html>",
+  "summary": "One short sentence describing what you changed."
+}
+The html_content must be the COMPLETE updated document. Return ONLY valid JSON — no markdown, no code fences, no explanation."""
+
+
+def edit_template_with_ai(
+    current_html: str,
+    columns: list[str] = None,
+    sample_rows: list[dict] = None,
+    messages: list[dict] = None,
+) -> tuple[str, str]:
+    """Edit an existing template via AI (edit, don't regenerate).
+
+    The job's columns + a few sample rows are passed as context, and the current
+    HTML is the base the model modifies. Embedded base64 images are stripped to
+    {EMBEDDED_IMAGE_N} before the model sees the HTML and re-injected into the
+    result, so logos/signatures always survive an edit.
+
+    `messages` is the client-held chat transcript ([{role, content}], short
+    assistant summaries — not full HTML). Must end with a user turn.
+
+    Returns (updated_html_with_images, summary).
+    """
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+
+    stripped_html, image_map = strip_embedded_images(current_html or "")
+
+    context_lines = []
+    if columns:
+        context_lines.append(
+            "Spreadsheet columns available as placeholders (use ONLY these): "
+            + ", ".join("{" + str(c) + "}" for c in columns)
+        )
+    if sample_rows:
+        try:
+            sample = json.dumps([dict(r) for r in sample_rows[:3]], indent=2, default=str)
+            context_lines.append(f"Sample data rows (for realistic content):\n{sample}")
+        except Exception:
+            pass
+    context_block = ("\n\n".join(context_lines) + "\n\n") if context_lines else ""
+
+    base_user = (
+        "Here is the current template you will edit. Apply the change(s) I describe "
+        "next, keeping everything else intact.\n\n"
+        f"{context_block}CURRENT TEMPLATE HTML:\n{stripped_html}"
+    )
+
+    api_messages = [
+        {"role": "user", "content": base_user},
+        {"role": "assistant", "content": "Got it — I have the current template and the available columns. What change would you like?"},
+    ]
+    for m in (messages or []):
+        role = m.get("role")
+        content = (m.get("content") or "").strip()
+        if role in ("user", "assistant") and content:
+            api_messages.append({"role": role, "content": content})
+
+    if api_messages[-1]["role"] != "user":
+        raise ValueError("The conversation must end with a user instruction.")
+
+    response = client.messages.create(
+        model=config.AI_MODEL_TEMPLATE_EDIT,
+        max_tokens=8192,
+        system=EDIT_SYSTEM_PROMPT,
+        messages=api_messages,
+    )
+
+    raw = response.content[0].text.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+
+    data = json.loads(raw)
+    html = (data.get("html_content") or "").strip()
+    if not html:
+        raise ValueError("AI returned an empty template.")
+    summary = (data.get("summary") or "").strip() or "Updated the template."
+
+    html = reinject_embedded_images(html, image_map)
+    return html, summary

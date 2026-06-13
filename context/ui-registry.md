@@ -63,12 +63,15 @@ Subject + HTML body editor with `{Placeholder}` chips (mono blue chips per ui-gu
 ### SmsComposer — `components/SmsComposer.tsx` (140 lines)
 SMS body editor with placeholder chips + character awareness. Saves via `setSmsContent()`.
 
+### JobTemplateEditor — `components/JobTemplateEditor.tsx`
+Accordion (SmsComposer collapsible-header pattern) for editing a job's **forked** template, shown on the job page for `dynamic_pdf` jobs. Three tabs (EmailComposer tab pattern): **Prompt** (AI chat → `aiEditJobTemplate()`, persisted in `localStorage.vp_job_template_chat_{jobId}`), **HTML** (textarea on placeholdered HTML → `saveJobTemplate()`; base64 images hidden as `{EMBEDDED_IMAGE_N}` via `lib/templateImages.ts`, re-injected on save), **Rich text** (iframe `sandbox="allow-same-origin"` + `contenteditable` body + `execCommand` toolbar — edits visible text while preserving `<style>`/`@page`/images). Side **preview** iframe via `getJobTemplatePreviewUrl()` (Blob URL — revoke on replace). **Reset to original** re-forks via `resetJobTemplate()`. Lazy-loads on first expand; locked (`disabled`) while a task runs; `onChanged` → parent `loadJob()`.
+
 ---
 
 ## Templates
 
 ### TemplateSelector — `components/TemplateSelector.tsx` (110 lines)
-Browse/pick a template to attach to a job (calls `attachTemplate()`). Tier-gated templates surface the backend's access error.
+Browse/pick a template to attach to a job (calls `attachTemplate()`). Tier-gated templates surface the backend's access error. Changing an already-attached template re-forks the job copy, so it now `confirm()`s first (in-job edits would be discarded — see JobTemplateEditor).
 
 ### TemplateCard — `components/TemplateCard.tsx` (244 lines)
 Single template card on /templates: name, description, owner, visibility/tier marker, preview + download + delete + publish/unpublish actions (`downloadTemplatePdf()`, `updateTemplateVisibility()`, `deleteTemplate()`).

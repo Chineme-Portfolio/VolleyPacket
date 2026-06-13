@@ -234,6 +234,11 @@ class Job:
             row.candidate_count = len(self.data)
             row.columns_json = json.dumps(self.columns)
             row.template_id = self.template_id
+            # Persist the job-local template fork. Setting job.template + save()
+            # (as attach_template does) snapshots it here, so edits never touch
+            # the shared TemplateRow. Only deliberate user edits change this —
+            # no background thread writes it, so it's safe outside the tasks_json merge.
+            row.template_json = json.dumps(self.template.model_dump()) if self.template else None
             row.job_mode = self.job_mode
             row.email_subject = self.email_subject
             row.email_body = self.email_body
@@ -387,7 +392,17 @@ class Job:
         job.static_attachment_path = None
         job.log_path = None
 
-        if job.template_id:
+        # Prefer the job-local fork (template_json) — it holds in-job edits.
+        # Fall back to the shared library template for jobs created before forking
+        # existed, or before a template was ever edited.
+        template_json = getattr(row, "template_json", None)
+        if template_json:
+            try:
+                job.template = TemplateConfig(**json.loads(template_json))
+            except Exception:
+                job.template = None
+
+        if not job.template and job.template_id:
             try:
                 from app.database import get_session as _get_session, TemplateRow
                 s = _get_session()

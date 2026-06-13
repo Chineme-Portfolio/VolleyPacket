@@ -5,7 +5,7 @@ import uuid
 import asyncio
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query, Depends
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
 import pandas as pd
@@ -20,6 +20,8 @@ from app.services.sms_tasks import start_sms_send
 from app.services.photo_tasks import start_photo_download
 from app.services.report_tasks import generate_report
 from app.services.storage import store
+from app.services.ai_generator import edit_template_with_ai, extract_placeholders
+from app.services.template_renderer import fill_placeholders, render_html_preview
 from app.dependencies import get_current_user
 from app.database import UserRow, EmailSettingsRow, get_session
 from app.services.encryption import decrypt_credentials
@@ -28,6 +30,8 @@ from app.services.billing import (
     check_job_limit,
     check_row_limit,
     check_template_access,
+    check_ai_limit,
+    increment_ai_usage,
     get_user_tier,
 )
 from app import config
@@ -377,6 +381,136 @@ def attach_template(job_id: str, request: AttachTemplateRequest, user: UserRow =
     job.column_mapping_confirmed = False
     job.save()
     return {"message": "Template attached", "template_id": job.template_id}
+
+
+# --- IN-JOB TEMPLATE EDITING ---
+# A template attached to a job is FORKED into a job-local copy (JobRow.template_json)
+# via job.save(), so edits here never touch the shared library TemplateRow.
+
+def _require_editable_template(job):
+    """Shared guard for template-edit endpoints: template attached + nothing running."""
+    if not job.template:
+        raise HTTPException(status_code=400, detail="No template attached to this job yet. Choose one first.")
+    running = [k for k, t in job.tasks.items() if t.status == "running"]
+    if running:
+        raise HTTPException(status_code=409, detail=f"Cannot edit the template while tasks are running: {running}")
+
+
+def _job_sample_rows(job, n: int = 3) -> list[dict]:
+    """A few real rows from the job's data — for AI context and realistic preview."""
+    df = job.valid_data if getattr(job, "valid_data", None) is not None else job.data
+    if df is None or len(df) == 0:
+        return []
+    return df.head(n).fillna("").to_dict(orient="records")
+
+
+@router.get("/{job_id}/template")
+def get_job_template(job_id: str, user: UserRow = Depends(get_current_user)):
+    """Return the job-local template (the editable fork)."""
+    job = _get_job_or_404(job_id, user)
+    if not job.template:
+        raise HTTPException(status_code=404, detail="No template attached to this job")
+    return job.template.model_dump()
+
+
+class JobTemplateHtmlRequest(BaseModel):
+    html_content: str
+
+
+@router.put("/{job_id}/template")
+def save_job_template(job_id: str, req: JobTemplateHtmlRequest, user: UserRow = Depends(get_current_user)):
+    """Save edited HTML to the job-local template (HTML + rich-text tabs)."""
+    job = _get_job_or_404(job_id, user)
+    _require_editable_template(job)
+
+    job.template.html_content = req.html_content
+    job.template.placeholders = extract_placeholders(req.html_content)
+    job.column_mapping_confirmed = False  # new placeholders may need remapping
+    job.save()
+    return job.template.model_dump()
+
+
+class AiEditMessage(BaseModel):
+    role: str
+    content: str
+
+
+class AiEditRequest(BaseModel):
+    messages: list[AiEditMessage]
+
+
+@router.post("/{job_id}/template/ai-edit")
+def ai_edit_job_template(job_id: str, req: AiEditRequest, user: UserRow = Depends(get_current_user)):
+    """Edit the job-local template via AI (edit, don't regenerate). Quota-gated."""
+    job = _get_job_or_404(job_id, user)
+    _require_editable_template(job)
+
+    if not req.messages or req.messages[-1].role != "user":
+        raise HTTPException(status_code=400, detail="Provide a conversation ending with a user instruction.")
+
+    # ── AI quota guard (every AI endpoint is paired: check before, increment after) ──
+    allowed, current, limit = check_ai_limit(user.id)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"You've used all {limit} AI messages this month. Upgrade your plan for more.",
+        )
+
+    try:
+        new_html, summary = edit_template_with_ai(
+            current_html=job.template.html_content,
+            columns=job.columns,
+            sample_rows=_job_sample_rows(job),
+            messages=[m.model_dump() for m in req.messages],
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"AI edit failed: {e}")
+
+    increment_ai_usage(user.id)
+
+    job.template.html_content = new_html
+    job.template.placeholders = extract_placeholders(new_html)
+    job.column_mapping_confirmed = False
+    job.save()
+
+    return {"template": job.template.model_dump(), "summary": summary}
+
+
+@router.post("/{job_id}/template/reset")
+def reset_job_template(job_id: str, user: UserRow = Depends(get_current_user)):
+    """Re-fork the job template from the original library template, discarding edits."""
+    job = _get_job_or_404(job_id, user)
+    running = [k for k, t in job.tasks.items() if t.status == "running"]
+    if running:
+        raise HTTPException(status_code=409, detail=f"Cannot reset the template while tasks are running: {running}")
+    if not job.template_id:
+        raise HTTPException(status_code=400, detail="This job has no original template to reset to.")
+
+    safe_id = os.path.basename(job.template_id)
+    tpl_key = f"templates/{safe_id}.json"
+    if not store.exists(tpl_key):
+        raise HTTPException(status_code=404, detail="The original template no longer exists in your library.")
+    tpl_config = json.loads(store.load_bytes(tpl_key))
+
+    job.template = TemplateConfig(**tpl_config)
+    job.column_mapping_confirmed = False
+    job.save()
+    return job.template.model_dump()
+
+
+@router.get("/{job_id}/template/preview")
+def preview_job_template(job_id: str, user: UserRow = Depends(get_current_user)):
+    """Render the job-local template filled with the first real data row (iframe preview)."""
+    job = _get_job_or_404(job_id, user)
+    if not job.template:
+        raise HTTPException(status_code=404, detail="No template attached to this job")
+
+    rows = _job_sample_rows(job, 1)
+    if rows:
+        html = fill_placeholders(job.template.html_content, rows[0])
+    else:
+        html = render_html_preview(job.template)  # highlight placeholders when there's no data
+    return HTMLResponse(content=html, status_code=200)
 
 
 # --- SET JOB MODE ---

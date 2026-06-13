@@ -30,6 +30,11 @@ ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
 # APIs
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
+# AI model tiering — change model ids here only (see context/architecture.md
+# "AI Generation & Model Tiering"). In-job template editing is the flagship,
+# low-frequency output, so it runs on the top tier.
+AI_MODEL_TEMPLATE_EDIT = os.getenv("AI_MODEL_TEMPLATE_EDIT", "claude-opus-4-8")
+
 # Stripe
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")

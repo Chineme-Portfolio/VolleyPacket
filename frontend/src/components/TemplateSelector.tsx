@@ -34,6 +34,14 @@ export default function TemplateSelector({ jobId, currentTemplateId, disabled, o
 
   async function handleChange() {
     if (!selectedId || selectedId === currentTemplateId) return;
+    // Re-attaching re-forks the job's template, discarding any in-job edits.
+    if (
+      currentTemplateId &&
+      !window.confirm(
+        "Switch templates? Any edits you made to this job's template will be replaced by the new one."
+      )
+    )
+      return;
     setSaving(true);
     setError("");
     try {

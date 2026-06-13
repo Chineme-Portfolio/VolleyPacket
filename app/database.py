@@ -84,7 +84,8 @@ class JobRow(Base):
     candidate_count = Column(Integer, nullable=False, default=0)
     columns_json = Column(Text, nullable=False, default="[]")  # JSON array of column names
 
-    template_id = Column(String, nullable=True)
+    template_id = Column(String, nullable=True)  # FK to the ORIGIN library template (for reset/display)
+    template_json = Column(Text, nullable=True)  # job-local fork of TemplateConfig — edits live here, never on TemplateRow
     job_mode = Column(String, nullable=False, default="dynamic_pdf")
     email_subject = Column(String, nullable=False, default="")
     email_body = Column(Text, nullable=False, default="")

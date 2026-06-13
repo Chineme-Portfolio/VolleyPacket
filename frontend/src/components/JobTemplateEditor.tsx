@@ -1,0 +1,615 @@
+"use client";
+
+import { useState, useRef, useEffect, useCallback } from "react";
+import {
+  getJobTemplate,
+  saveJobTemplate,
+  aiEditJobTemplate,
+  resetJobTemplate,
+  getJobTemplatePreviewUrl,
+  type JobTemplate,
+} from "@/lib/api";
+import { stripImages, injectImages } from "@/lib/templateImages";
+import { friendlyError } from "@/lib/errors";
+import { useToast } from "@/components/Toast";
+
+interface JobTemplateEditorProps {
+  jobId: string;
+  columns: string[];
+  templateId: string | null;
+  /** True while a task is running — editing is locked. */
+  disabled?: boolean;
+  /** Called after a successful edit so the parent can reload the job (placeholders/mapping change). */
+  onChanged?: () => void;
+}
+
+type Tab = "prompt" | "html" | "richtext";
+
+interface ChatMsg {
+  id: string;
+  role: "user" | "assistant" | "system";
+  text: string;
+}
+
+const CHAT_KEY = "vp_job_template_chat";
+
+const WELCOME: ChatMsg = {
+  id: "welcome",
+  role: "assistant",
+  text:
+    'Describe a change and I\'ll edit this job\'s template — e.g. "make the header navy", "add a signature line under the body", or "increase the body font size". Your spreadsheet columns and a few sample rows are sent as context, and embedded images (logo, signature, letterhead) are always preserved.',
+};
+
+const msgId = () => Date.now().toString() + Math.random().toString(36).slice(2);
+
+function loadChat(jobId: string): ChatMsg[] {
+  if (typeof window === "undefined") return [WELCOME];
+  try {
+    const raw = localStorage.getItem(`${CHAT_KEY}_${jobId}`);
+    if (raw) {
+      const parsed = JSON.parse(raw) as ChatMsg[];
+      return parsed.filter((m) => m.role !== "system");
+    }
+  } catch {}
+  return [WELCOME];
+}
+
+function saveChat(jobId: string, messages: ChatMsg[]) {
+  try {
+    localStorage.setItem(`${CHAT_KEY}_${jobId}`, JSON.stringify(messages));
+  } catch {}
+}
+
+const GENERATING_TEXT = "Editing the template…";
+
+export default function JobTemplateEditor({
+  jobId,
+  columns,
+  templateId,
+  disabled = false,
+  onChanged,
+}: JobTemplateEditorProps) {
+  const { toast } = useToast();
+  const [expanded, setExpanded] = useState(false);
+  const [activeTab, setActiveTab] = useState<Tab>("prompt");
+
+  const [template, setTemplate] = useState<JobTemplate | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Preview (object URL — revoked on replace/unmount)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const previewUrlRef = useRef<string | null>(null);
+
+  // HTML tab — works on placeholdered HTML; images held in a sidecar map.
+  const [htmlDraft, setHtmlDraft] = useState("");
+  const [savedHtml, setSavedHtml] = useState("");
+  const imageMapRef = useRef<Record<string, string>>({});
+
+  // Rich-text tab
+  const editIframeRef = useRef<HTMLIFrameElement>(null);
+
+  // AI tab
+  const [messages, setMessages] = useState<ChatMsg[]>(() => loadChat(jobId));
+  const [chatInput, setChatInput] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  const [saving, setSaving] = useState(false);
+  const [resetting, setResetting] = useState(false);
+
+  const applyTemplate = useCallback((t: JobTemplate) => {
+    setTemplate(t);
+    const { html, map } = stripImages(t.html_content);
+    imageMapRef.current = map;
+    setHtmlDraft(html);
+    setSavedHtml(html);
+  }, []);
+
+  const refreshPreview = useCallback(async () => {
+    setPreviewLoading(true);
+    try {
+      const url = await getJobTemplatePreviewUrl(jobId);
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = url;
+      setPreviewUrl(url);
+    } catch (err) {
+      toast(friendlyError(err));
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [jobId, toast]);
+
+  const loadTemplate = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const t = await getJobTemplate(jobId);
+      applyTemplate(t);
+      await refreshPreview();
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setLoading(false);
+      setLoaded(true);
+    }
+  }, [jobId, applyTemplate, refreshPreview]);
+
+  // Lazy-load the template the first time the section is opened.
+  useEffect(() => {
+    if (expanded && !disabled && !loaded && !loading) loadTemplate();
+  }, [expanded, disabled, loaded, loading, loadTemplate]);
+
+  // Re-fetch if the attached template changes (re-fork discards prior edits).
+  useEffect(() => {
+    setLoaded(false);
+    setTemplate(null);
+  }, [templateId]);
+
+  // Persist chat + autoscroll
+  useEffect(() => {
+    saveChat(jobId, messages);
+  }, [messages, jobId]);
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  // Revoke the preview object URL on unmount.
+  useEffect(
+    () => () => {
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    },
+    []
+  );
+
+  const htmlDirty = htmlDraft !== savedHtml;
+
+  async function handleSaveHtml() {
+    if (!template) return;
+    setSaving(true);
+    try {
+      const inline = injectImages(htmlDraft, imageMapRef.current);
+      const t = await saveJobTemplate(jobId, inline);
+      applyTemplate(t);
+      await refreshPreview();
+      onChanged?.();
+      toast("Template saved");
+    } catch (err) {
+      toast(friendlyError(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSaveRichText() {
+    const doc = editIframeRef.current?.contentDocument;
+    if (!doc) return;
+    setSaving(true);
+    try {
+      const body = doc.body;
+      // Don't persist the editing affordance into the saved HTML / PDF.
+      body?.removeAttribute("contenteditable");
+      const html = "<!DOCTYPE html>\n" + doc.documentElement.outerHTML;
+      if (body) body.setAttribute("contenteditable", "true");
+      const t = await saveJobTemplate(jobId, html);
+      applyTemplate(t);
+      await refreshPreview();
+      onChanged?.();
+      toast("Template saved");
+    } catch (err) {
+      toast(friendlyError(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleEditIframeLoad() {
+    const doc = editIframeRef.current?.contentDocument;
+    if (doc?.body) doc.body.setAttribute("contenteditable", "true");
+  }
+
+  function exec(command: string, value?: string) {
+    const doc = editIframeRef.current?.contentDocument;
+    if (!doc) return;
+    try {
+      doc.execCommand(command, false, value);
+    } catch {}
+  }
+
+  async function handleAiSend() {
+    const text = chatInput.trim();
+    if (!text || generating || !template) return;
+    setChatInput("");
+
+    // Build the API transcript from prior turns BEFORE adding the new message.
+    const transcript = messages
+      .filter((m) => (m.role === "user" || m.role === "assistant") && m.id !== "welcome" && m.text)
+      .map((m) => ({ role: m.role as "user" | "assistant", content: m.text }));
+    transcript.push({ role: "user", content: text });
+
+    setMessages((prev) => [...prev, { id: msgId(), role: "user", text }]);
+    setMessages((prev) => [...prev, { id: msgId(), role: "system", text: GENERATING_TEXT }]);
+    setGenerating(true);
+
+    try {
+      const result = await aiEditJobTemplate(jobId, transcript);
+      applyTemplate(result.template);
+      await refreshPreview();
+      onChanged?.();
+      setMessages((prev) =>
+        prev
+          .filter((m) => m.text !== GENERATING_TEXT)
+          .concat({ id: msgId(), role: "assistant", text: result.summary || "Done." })
+      );
+    } catch (err) {
+      setMessages((prev) =>
+        prev
+          .filter((m) => m.text !== GENERATING_TEXT)
+          .concat({ id: msgId(), role: "assistant", text: `Edit failed. ${friendlyError(err)}` })
+      );
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function handleReset() {
+    if (
+      !window.confirm(
+        "Reset this job's template to the original library version? Your in-job edits will be lost."
+      )
+    )
+      return;
+    setResetting(true);
+    try {
+      const t = await resetJobTemplate(jobId);
+      applyTemplate(t);
+      await refreshPreview();
+      onChanged?.();
+      toast("Template reset to original");
+    } catch (err) {
+      toast(friendlyError(err));
+    } finally {
+      setResetting(false);
+    }
+  }
+
+  const tabBtn = (tab: Tab, label: string) => (
+    <button
+      onClick={() => setActiveTab(tab)}
+      className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+        activeTab === tab
+          ? "bg-green-50 text-green-800 border-b-2 border-green-700"
+          : "text-gray-500 hover:text-gray-700"
+      }`}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      {/* Collapsible header */}
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between px-5 py-4"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center flex-shrink-0">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#15803d" strokeWidth="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
+            </svg>
+          </div>
+          <div className="text-left">
+            <h3 className="text-sm font-semibold text-gray-900">Edit Template</h3>
+            <p className="text-xs text-gray-500">
+              {template
+                ? `${template.name} · ${template.placeholders.length} placeholder${
+                    template.placeholders.length === 1 ? "" : "s"
+                  }`
+                : "Tailor this job's copy by prompt, HTML, or rich text"}
+            </p>
+          </div>
+        </div>
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="#9ca3af"
+          strokeWidth="2"
+          className={`transition-transform ${expanded ? "rotate-180" : ""}`}
+        >
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+
+      {expanded && (
+        <div className="px-5 pb-5">
+          {disabled ? (
+            <p className="text-sm text-gray-500 bg-gray-50 rounded-xl p-4">
+              Editing is locked while a task is running. Pause or wait for it to finish, then edit the
+              template here.
+            </p>
+          ) : loading ? (
+            <div className="flex items-center gap-2 text-sm text-gray-500 py-6">
+              <div className="w-4 h-4 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+              Loading template…
+            </div>
+          ) : error ? (
+            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl p-4">
+              {error}
+              <button onClick={loadTemplate} className="ml-2 underline hover:no-underline">
+                Retry
+              </button>
+            </div>
+          ) : template ? (
+            <>
+              {/* Tabs */}
+              <div className="flex gap-1 border-b border-gray-100 mb-4">
+                {tabBtn("prompt", "Prompt")}
+                {tabBtn("html", "HTML")}
+                {tabBtn("richtext", "Rich text")}
+              </div>
+
+              <div className="grid lg:grid-cols-2 gap-4">
+                {/* Editor column */}
+                <div className="min-h-[420px] flex flex-col">
+                  {/* Prompt / AI tab */}
+                  {activeTab === "prompt" && (
+                    <div className="flex flex-col h-[420px] border border-gray-100 rounded-xl overflow-hidden">
+                      <div className="flex items-center justify-between px-4 py-1.5 bg-amber-50 border-b border-amber-100">
+                        <p className="text-[11px] text-amber-600">
+                          Edits apply immediately. Chat is saved locally; clears on logout.
+                        </p>
+                        {messages.length > 1 && (
+                          <button
+                            onClick={() => setMessages([WELCOME])}
+                            className="text-[11px] text-amber-500 hover:text-amber-700 transition-colors"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-gray-50/50">
+                        {messages.map((msg) => (
+                          <div
+                            key={msg.id}
+                            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                          >
+                            {msg.role === "system" ? (
+                              <div className="flex items-center gap-2 text-xs text-gray-400 italic">
+                                <div className="w-3 h-3 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+                                {msg.text}
+                              </div>
+                            ) : (
+                              <div
+                                className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
+                                  msg.role === "user"
+                                    ? "bg-green-800 text-white rounded-br-md"
+                                    : "bg-white border border-gray-200 text-gray-800 rounded-bl-md"
+                                }`}
+                              >
+                                {msg.text}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                        <div ref={chatEndRef} />
+                      </div>
+                      <div className="px-4 py-3 border-t border-gray-100 bg-white">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={chatInput}
+                            onChange={(e) => setChatInput(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleAiSend()}
+                            placeholder="Describe a change to this template…"
+                            className="flex-1 bg-gray-100 rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 outline-none focus:ring-2 focus:ring-green-700/20 transition-shadow"
+                            disabled={generating}
+                          />
+                          <button
+                            onClick={handleAiSend}
+                            disabled={generating || !chatInput.trim()}
+                            className="flex-shrink-0 w-10 h-10 rounded-xl bg-green-800 flex items-center justify-center hover:bg-green-900 transition-colors disabled:opacity-50"
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                              <path d="M22 2L11 13" />
+                              <path d="M22 2L15 22L11 13L2 9L22 2Z" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* HTML tab */}
+                  {activeTab === "html" && (
+                    <div className="flex flex-col h-[420px]">
+                      <p className="text-[11px] text-gray-500 mb-1.5">
+                        Embedded images are shown as{" "}
+                        <code className="font-mono text-gray-600">{"{EMBEDDED_IMAGE_N}"}</code> and restored
+                        on save.
+                      </p>
+                      <textarea
+                        value={htmlDraft}
+                        onChange={(e) => setHtmlDraft(e.target.value)}
+                        spellCheck={false}
+                        className="flex-1 w-full px-3 py-2 rounded-xl border border-gray-200 bg-white text-xs text-gray-800 outline-none focus:ring-2 focus:ring-green-700/20 focus:border-green-300 font-mono resize-none"
+                      />
+                      <div className="flex items-center gap-3 mt-3">
+                        <button
+                          onClick={handleSaveHtml}
+                          disabled={saving || !htmlDirty}
+                          className="px-4 py-2 text-sm font-medium text-white bg-green-800 rounded-xl hover:bg-green-900 transition-colors disabled:opacity-50"
+                        >
+                          {saving ? "Saving…" : "Save HTML"}
+                        </button>
+                        {htmlDirty && <span className="text-xs text-amber-600">Unsaved changes</span>}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Rich text tab */}
+                  {activeTab === "richtext" && (
+                    <div className="flex flex-col h-[420px]">
+                      <div className="flex flex-wrap items-center gap-1 mb-2">
+                        {[
+                          { cmd: "bold", label: "B", cls: "font-bold" },
+                          { cmd: "italic", label: "I", cls: "italic" },
+                          { cmd: "underline", label: "U", cls: "underline" },
+                        ].map((b) => (
+                          <button
+                            key={b.cmd}
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => exec(b.cmd)}
+                            className={`w-8 h-8 rounded-lg border border-gray-200 text-sm text-gray-700 hover:bg-gray-50 ${b.cls}`}
+                          >
+                            {b.label}
+                          </button>
+                        ))}
+                        <span className="w-px h-5 bg-gray-200 mx-1" />
+                        {[
+                          { cmd: "insertUnorderedList", label: "• List" },
+                          { cmd: "insertOrderedList", label: "1. List" },
+                        ].map((b) => (
+                          <button
+                            key={b.cmd}
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => exec(b.cmd)}
+                            className="h-8 px-2 rounded-lg border border-gray-200 text-xs text-gray-700 hover:bg-gray-50"
+                          >
+                            {b.label}
+                          </button>
+                        ))}
+                        <span className="w-px h-5 bg-gray-200 mx-1" />
+                        {[
+                          { cmd: "justifyLeft", label: "↤" },
+                          { cmd: "justifyCenter", label: "↔" },
+                          { cmd: "justifyRight", label: "↦" },
+                        ].map((b) => (
+                          <button
+                            key={b.cmd}
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => exec(b.cmd)}
+                            className="w-8 h-8 rounded-lg border border-gray-200 text-sm text-gray-700 hover:bg-gray-50"
+                          >
+                            {b.label}
+                          </button>
+                        ))}
+                        <span className="w-px h-5 bg-gray-200 mx-1" />
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            const url = window.prompt("Link URL:");
+                            if (url) exec("createLink", url);
+                          }}
+                          className="h-8 px-2 rounded-lg border border-gray-200 text-xs text-gray-700 hover:bg-gray-50"
+                        >
+                          Link
+                        </button>
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => exec("removeFormat")}
+                          className="h-8 px-2 rounded-lg border border-gray-200 text-xs text-gray-700 hover:bg-gray-50"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      <iframe
+                        ref={editIframeRef}
+                        title="Rich text editor"
+                        srcDoc={template.html_content}
+                        sandbox="allow-same-origin"
+                        onLoad={handleEditIframeLoad}
+                        className="flex-1 w-full rounded-xl border border-gray-200 bg-white"
+                      />
+                      <div className="flex items-center gap-3 mt-3">
+                        <button
+                          onClick={handleSaveRichText}
+                          disabled={saving}
+                          className="px-4 py-2 text-sm font-medium text-white bg-green-800 rounded-xl hover:bg-green-900 transition-colors disabled:opacity-50"
+                        >
+                          {saving ? "Saving…" : "Save changes"}
+                        </button>
+                        <span className="text-xs text-gray-400">
+                          Edits visible text only; layout & styles are preserved. Switching tabs discards
+                          unsaved changes.
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Column chips — shared helper for HTML & rich text */}
+                  {activeTab !== "prompt" && columns.length > 0 && (
+                    <div className="mt-3 bg-gray-50 rounded-xl p-3">
+                      <p className="text-xs font-medium text-gray-600 mb-2">Insert placeholder</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {columns.map((col) => (
+                          <button
+                            key={col}
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              if (activeTab === "html") setHtmlDraft((h) => h + `{${col}}`);
+                              else exec("insertText", `{${col}}`);
+                            }}
+                            className="px-2 py-0.5 text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded-md font-mono hover:bg-amber-100 transition-colors"
+                          >
+                            {`{${col}}`}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Preview column */}
+                <div className="min-h-[420px] flex flex-col">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-medium text-gray-600">Preview (first data row)</p>
+                    {previewLoading && (
+                      <div className="w-3.5 h-3.5 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+                    )}
+                  </div>
+                  {previewUrl ? (
+                    <iframe
+                      title="Template preview"
+                      src={previewUrl}
+                      sandbox="allow-same-origin"
+                      className="flex-1 w-full rounded-xl border border-gray-200 bg-white"
+                    />
+                  ) : (
+                    <div className="flex-1 rounded-xl border border-gray-200 bg-gray-50" />
+                  )}
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
+                <p className="text-xs text-gray-400">
+                  Edits affect only this job — your saved library template is untouched.
+                </p>
+                <button
+                  onClick={handleReset}
+                  disabled={resetting}
+                  className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+                >
+                  {resetting ? "Resetting…" : "Reset to original"}
+                </button>
+              </div>
+            </>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}

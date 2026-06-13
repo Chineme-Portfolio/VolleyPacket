@@ -8,9 +8,9 @@ Update this file after every working session. Any agent reading this should imme
 
 **Branch:** `v2.0` (default branch for PRs: `main`)
 **Phase:** B — Stabilization (see `roadmap.md`)
-**Current focus:** Billing hardening is **done**; the only open billing item is **testing the Paystack route end-to-end** (checkout → webhook → tier change).
-**Last completed:** Billing hardening — Stripe webhook/customer-ID fixes + subscription cancel/resume + account deletion (`009abc9`).
-**Next:** Test the Paystack route → then begin the Phase C **AI capabilities upgrade** (build the AI seam first — see `roadmap.md` + `architecture.md` § AI Generation & Model Tiering).
+**Current focus:** Phase C **AI capabilities upgrade** has started with **in-job template editing** (first slice). Open from Phase B: **testing the Paystack route end-to-end** (checkout → webhook → tier change).
+**Last completed:** In-job template editing — per-job template fork + prompt/HTML/rich-text editing (uncommitted, this session).
+**Next:** Live smoke test of in-job editing on a real backend (needs WeasyPrint + `ANTHROPIC_API_KEY`) → the proper AI seam (to absorb the focused edit function + email/SMS) → Paystack route test.
 
 ---
 
@@ -46,6 +46,7 @@ The load-bearing decisions and the reasoning — do not re-litigate these withou
 - **SSE reads light jobs from DB on a 2s/10s cadence; TaskPanel is presentation-only** — polling lifecycle lives in the job-detail page (`0f583d2`, `c53ec31`, `51df5eb`).
 - **Frontend: one API wrapper (`lib/api.ts`) with auto-logout on 401; `vp_`-prefixed localStorage keys.**
 - **AI model tiering via a thin per-task seam (planned).** Template generation/editing → top-tier model (quality-critical, low-frequency, the core output); email/SMS drafting → cheap model (low-stakes, user-edited). One `ai` seam holds a *static* task→model map + a real `messages[]` conversation contract — **client-replayed, backend stateless** (no server-side conversation state; that would be another multi-worker consistency surface) — plus centralized prompt caching, JSON-repair, and AI-quota checks. Earned now (≥2 real tiers across 4 call sites: template-gen, in-job edit, email, SMS) — but **not** a dynamic router. Vehicle TBD: OpenRouter (best-of-breed mix, keep Claude for templates) vs single-vendor Gemini (Pro + Flash-Lite). Template-tier quality comes from a WeasyPrint-aware prompt + render-check, not model tier alone. Full design in `architecture.md` § AI Generation & Model Tiering.
+- **In-job template editing shipped ahead of the AI seam, on a focused edit function.** Rather than block the feature on the full seam refactor, `edit_template_with_ai()` uses the existing Anthropic client directly with the AI-quota pair and the `messages[]`/edit-don't-regenerate/fork-don't-mutate rules already honored. When the seam lands it should *absorb* this call site (and email/SMS) — the model id already lives in one place (`config.AI_MODEL_TEMPLATE_EDIT`). The job-local fork is stored in `JobRow.template_json`; rendering is unchanged because PDF generation already reads `job.template`.
 
 ---
 
@@ -91,6 +92,16 @@ The load-bearing decisions and the reasoning — do not re-litigate these withou
 ## Session Notes
 
 > Append a dated entry per session: what was done, how it was verified, gotchas discovered.
+
+### 2026-06-13 — In-job template editing (Phase C, first slice)
+- **Feature:** edit a job's PDF template inside the job — by AI **prompt**, raw **HTML**, and visible-text **rich text** — in a collapsible accordion on the job page.
+- **Fork, don't mutate:** new additive `JobRow.template_json` column holds a job-local `TemplateConfig` copy. `Job.save()` snapshots `job.template` into it (so attach + every save forks automatically); `from_db_row()` prefers it, falling back to the shared `TemplateRow` for old jobs. Library template is never touched. (`app/database.py`, `app/services/jobs.py`).
+- **Edit, don't regenerate:** new `edit_template_with_ai()` in `ai_generator.py` passes the current HTML + job columns + sample rows + a client-held `messages[]` transcript to **Opus** (`config.AI_MODEL_TEMPLATE_EDIT`, default `claude-opus-4-8`). Embedded base64 images are stripped to `{EMBEDDED_IMAGE_N}` before the model and re-injected after (reusable `strip_embedded_images`/`reinject_embedded_images`/`extract_placeholders` helpers; the generator now uses them too).
+- **Endpoints** (`app/routes/jobs.py`, owner-scoped, blocked while a task runs): `GET/PUT /jobs/{id}/template`, `POST /template/ai-edit` (AI-quota-paired), `POST /template/reset`, `GET /template/preview` (renders first data row).
+- **Frontend:** `JobTemplateEditor.tsx` (accordion + 3 tabs + side preview + reset), `lib/templateImages.ts` (client strip/inject mirroring backend), new `api.ts` functions (preview via Blob URL, not data: URL, because templates embed base64). Wired into `jobs/[id]/page.tsx` for `dynamic_pdf` jobs; `TemplateSelector` now confirms before re-forking.
+- **Decision:** built a *focused* edit function on the existing Anthropic client rather than blocking on the full AI seam — the seam can absorb it later (logged below).
+- **Verified:** `tsc --noEmit` clean; `next build` passes (19 pages, incl. `/jobs/[id]`); fork round-trip on a real SQLite DB — migration adds the column, fork wins over shared template, fallback works, `save()` leaves the library template untouched, two jobs isolated. Image strip/inject round-trips exactly. **Not yet done:** live endpoint + AI-call + browser smoke test (local venv lacks WeasyPrint; needs a real backend + API key). `npm run lint` has pre-existing repo-wide errors (auth.tsx etc.) — none in the new/changed files.
+- **Gotcha:** rich-text editor is an iframe (`sandbox="allow-same-origin"`, body `contenteditable`, `execCommand`) so the document's `<style>`/`@page`/images stay intact; serializes `<!DOCTYPE html>` + `documentElement.outerHTML` on save. Confirm `execCommand` works under that sandbox during the live test.
 
 ### 2026-06-13 — Context-system refinement + AI planning
 - `code-standards.md`: added **Design Principles & Patterns** (SOLID anchored to `storage`/`email_providers`; GoF reference table; "earn the abstraction" guardrails).
