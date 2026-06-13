@@ -38,11 +38,12 @@ VolleyPacket's equivalent of a build plan — adapted for a project that is **ha
 
 The async-task reliability war is largely won (see `failure-modes.md` for everything closed). What remains, in priority order:
 
-- [ ] **Billing hardening — finish the pass** (this is where the last four commits live)
-  - [ ] End-to-end verify: checkout → webhook → tier upgrade → limits change, on BOTH providers
-  - [ ] Verify cancel/resume → period-end downgrade path
-  - [ ] Webhook idempotency (replayed events must not double-apply)
-- [ ] **Remove the temporary `/debug/db` endpoint** once DB diagnostics are no longer needed (it's unauthenticated)
+- [~] **Billing hardening — effectively done; one check remaining**
+  - [x] Stripe checkout → webhook → tier change hardened (plain-JSON payloads, stale-customer-ID recovery)
+  - [x] Subscription cancel/resume + account deletion shipped (`009abc9`)
+  - [ ] **Test the Paystack route end-to-end** (checkout → webhook → tier change) — the last open billing item
+  - [ ] Confirm webhook idempotency (replayed events must not double-apply) while testing the Paystack route
+- [x] **Removed the temporary `/debug/db` endpoint** (2026-06-13) — was unauthenticated; added 2026-05-23 (`022f439`) to diagnose job-creation / table-presence issues during the Railway DB + auto-migration work, no longer needed.
 - [ ] **Active-bug burndown** — work the list in `progress-tracker.md` § Active Issues as items are confirmed
 - [ ] **Known soft spots** (candidates — confirm before working):
   - [ ] No retry mechanism for transiently-failed email/SMS rows (currently: rerun the task; skip-existing makes it safe for PDFs, less so for sends)
@@ -52,13 +53,24 @@ The async-task reliability war is largely won (see `failure-modes.md` for everyt
 
 ## Phase C — Next features (proposals — confirm priority before building)
 
+### AI capabilities upgrade ★ (planned — full design in `architecture.md` § AI Generation & Model Tiering)
+
+Build order matters — the seam is the foundation the other two sit on:
+
+1. [ ] **AI seam + conversation contract + model tiering** — one `ai` module: `{task, messages[], images?, columns?} → structured output`, with a *static* per-task model map (template tier = top model; email/SMS = cheap), centralized prompt caching, JSON-repair, and the AI-quota check. Delivers "keep context for the session" (real `messages[]`, client-replayed, **stateless backend**) and the tiering. **Not** a dynamic router.
+2. [ ] **AI SMS composer** — mirror the email composer for `SmsComposer` (cheap model; bake in SMS constraints: ~160-char segments, plain text, sender ID). Must call `check_ai_limit`/`increment_ai_usage` — don't let a new AI entry point bypass billing.
+3. [ ] **In-job template editing** (replaces the old "edit templates conversationally" item) — edit a job's template via prompts, **top-tier** model. Must: (a) **fork to a job-local template copy**, never mutate the shared `TemplateRow`; (b) **edit the existing HTML**, not regenerate; (c) pass the job's real columns and validate every `{Placeholder}` against them.
+
+Template-quality note (top tier alone is not enough): pair the top model with a **WeasyPrint-aware prompt** (no flex/grid) + few-shot good templates + a **render-and-check auto-fix pass** — that drives "first-try" success more than model tier.
+
+### Other proposals
+
 - [ ] Scheduled / deferred job runs (send at a chosen time)
 - [ ] Resend-failed-only action (retry just the failed rows from the report)
-- [ ] Additional SMS providers (beyond BulkSMS Nigeria)
+- [ ] Additional SMS providers (beyond BulkSMS Nigeria) — see the SMS provider plan in `architecture.md`
 - [ ] WhatsApp channel
-- [ ] Template editor improvements (edit existing AI templates conversationally)
 - [ ] Dashboard analytics beyond stat cards (sends over time, success rates)
-- [ ] Team/organization accounts
+- [ ] Team/organization accounts (org-level tenancy + roles; would also enable SSO)
 
 ## Phase D — Later / ideas parking lot
 

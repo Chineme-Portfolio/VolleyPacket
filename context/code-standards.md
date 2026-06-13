@@ -18,6 +18,77 @@ The AI agent on this project operates as a senior engineer maintaining a product
 
 ---
 
+## Design Principles & Patterns
+
+The design lens for the codebase. These are **guides for new and refactored code, not a mandate to restructure working code.** In a stabilization phase the priority order is: correctness → respects the `architecture.md` invariants → minimal diff → SOLID/clean design. A "more SOLID" rewrite that touches code unrelated to the task is out of scope (see *Scope is sacred*).
+
+### SOLID
+
+The best modules already follow SOLID — `app/services/storage.py` and `app/services/email_providers/` are the reference implementations. Make new code look like them.
+
+- **S — Single Responsibility.** One module/class/component, one reason to change. This is already the service layout: `pdf_tasks` renders, `email_tasks` sends, `storage` persists, `billing` gates. Keep routes thin (HTTP only); one React component per file. If a function does two unrelated things, split it.
+- **O — Open/Closed.** Extend by adding an implementation, not by editing a growing `if/elif`. A new email provider = a new class + a factory registration; you don't touch `email_tasks`. New storage backend, same story.
+- **L — Liskov Substitution.** Every `EmailProvider` / `StorageBackend` subclass must be a drop-in: same signatures, same return shapes, same error contract. A provider that throws where the base returns, or returns a different shape, breaks callers that only know the interface.
+- **I — Interface Segregation.** Keep base interfaces small and focused (`EmailProvider` exposes essentially `send`; `StorageBackend` only the storage verbs). Don't add a method to a base class that only one implementation needs.
+- **D — Dependency Inversion.** Depend on abstractions, never concretions. Code calls `store` and the provider interface — never `boto3` or the Resend SDK directly (already an architecture invariant: "never import boto3 outside storage.py"). New third-party integrations get a thin service wrapper (like `paystack.py`) that the rest of the app depends on.
+
+The boundary **Invariants** in `architecture.md` are the structural enforcement of S and D — treat them as the non-negotiable floor; SOLID here is the broader spirit.
+
+### Software Design Patterns
+
+Reach for a pattern when it **removes real duplication or coupling** — never to demonstrate the pattern. The wrong pattern adds indirection a maintainer has to unwind, which is the opposite of stabilization.
+
+- **Match what's already here.** When you need new structure, copy the pattern the codebase already uses for that shape (table below) so the code stays uniform.
+- **Earn the abstraction.** Two concrete cases justify an interface; one does not. Don't pre-abstract for a hypothetical future provider.
+- **Never introduce a pattern mid-bugfix.** Patterns land in dedicated `refactor:` commits with their own verification — never smuggled into a `fix:`.
+- **Clean over clever.** Simple, readable code a junior can follow beats an elegant pattern they can't. If a plain function does the job, use the plain function.
+
+**Patterns already in VolleyPacket** — the in-house vocabulary; prefer these and extend them the existing way:
+
+| Pattern | Where | Reach for it when |
+| --- | --- | --- |
+| Strategy | `email_providers/` (Resend/SendGrid/SMTP), `storage` (Local/S3) | interchangeable implementations behind one interface |
+| Factory method | `create_provider()`, `get_storage()` | selecting an implementation at runtime from config/region |
+| Adapter | each email provider wrapping a third-party SDK into `EmailProvider` | fitting an external API onto our interface |
+| Facade | `paystack.py`, the service layer over libraries | one simple entry point into a messy subsystem |
+| Singleton | `get_storage()` lazy singleton, the SQLAlchemy session factory | exactly one shared, lazily-created instance |
+| Proxy | `_StorageProxy` (the `store` object) | deferring or wrapping access to the real object |
+| Template method | the `run_*` task skeleton (fixed lifecycle, varying body) | a fixed process with one or two pluggable steps |
+
+Adding a provider, a storage backend, or another long-running task means **extending one of these** — do it the existing way, not a new way.
+
+**Full GoF reference** — for when a genuinely new structural problem appears (★ = already used here):
+
+| Pattern | Use it when you want to… |
+| --- | --- |
+| Abstract factory | create families of related objects while hiding which family from the client |
+| Adapter ★ | convert one interface into another |
+| Bridge | vary a stable client interface and its implementation independently |
+| Builder | build something via different processes and step orders |
+| Chain of responsibility | pass a request along handlers when the right handler isn't known in advance |
+| Command | execute operations flexibly — queue, schedule, log, undo/redo |
+| Composite | treat part-whole tree structures through one uniform interface |
+| Decorator | add or remove responsibilities on objects dynamically |
+| Facade ★ | present a simple interface over a web of components |
+| Factory method ★ | let config/subclass decide which product is created |
+| Flyweight | share many fine-grained objects economically |
+| Interpreter | evaluate rules/grammar that change frequently |
+| Iterator | traverse a collection without exposing its structure |
+| Mediator | decouple objects whose interactions are complex |
+| Memento | capture and restore an object's private state |
+| Observer | decouple handlers from an event source; add/remove them dynamically |
+| Prototype | clone existing objects to avoid creation cost |
+| Proxy ★ | control access — remote, lazy, guarded, or tracked |
+| Singleton ★ | guarantee one (or a few) shared instance(s) |
+| State | implement a state machine at low complexity |
+| Strategy ★ | swap interchangeable algorithms differing in non-functional aspects |
+| Template method ★ | vary individual steps of a fixed process |
+| Visitor | decouple type-dependent operations from the classes they act on |
+
+**Rarely a fit here** — Visitor, Interpreter, Composite, Flyweight, Memento, Prototype, Bridge. VolleyPacket is a mostly-functional Python service app with a thin React UI, not a deep class hierarchy. If you find yourself reaching for one of these, stop and confirm it's genuinely warranted before adding it.
+
+---
+
 ## Python (backend)
 
 ### Style

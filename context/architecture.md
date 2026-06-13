@@ -16,11 +16,11 @@ The structural contract for VolleyPacket. Where code lives, how the pieces talk 
 | PDF rendering | WeasyPrint | HTML → PDF (needs Pango system libs — see Dockerfile) |
 | AI | Anthropic Claude (`claude-sonnet-4-6`) | Template generation, email drafting |
 | Email | Resend / SendGrid / SMTP (pluggable providers) | Per-user configured delivery |
-| SMS | BulkSMS Nigeria | SMS channel |
+| SMS | BulkSMS Nigeria — global env today; pluggable per-user providers *(planned — see Pluggable Providers)* | SMS channel |
 | Billing | Stripe (intl/USD) + Paystack (Nigeria/NGN) | Subscriptions |
 | Storage | boto3 S3 (Railway bucket) or local filesystem | Files: uploads, PDFs, zips, logs |
 | Auth | PyJWT (HS256) + bcrypt + Google OAuth | Sessions and identity |
-| Secrets at rest | cryptography (Fernet) | Email provider credentials |
+| Secrets at rest | cryptography (Fernet) | Email provider credentials (SMS provider credentials — planned) |
 | Server | gunicorn + uvicorn workers (**2 workers**) | Production process model |
 
 ### Frontend (`frontend/`)
@@ -70,7 +70,7 @@ The structural contract for VolleyPacket. Where code lives, how the pieces talk 
 │       ├── jobs.py           → Job class, DB persistence, control flags, email cleaning ★ core
 │       ├── pdf_tasks.py      → PDF generation task (thread)
 │       ├── email_tasks.py    → Email send task (thread)
-│       ├── sms_tasks.py      → SMS send task (thread)
+│       ├── sms_tasks.py      → SMS send task (thread) — BulkSMS-direct today; planned to use sms_providers/
 │       ├── photo_tasks.py    → Photo download task (thread, 4-worker pool)
 │       ├── report_tasks.py   → Delivery report (multi-sheet Excel)
 │       ├── template_renderer.py → fill_placeholders, render_pdf, html preview
@@ -84,7 +84,8 @@ The structural contract for VolleyPacket. Where code lives, how the pieces talk 
 │       ├── paystack.py       → Paystack REST wrapper
 │       ├── generator.py      → safe_filename, photo download helpers
 │       ├── allocator.py      → Exam slot allocation utility (legacy v1 feature)
-│       └── email_providers/  → base.py (interface) + resend/sendgrid/smtp + factory
+│       ├── email_providers/  → base.py (interface) + resend/sendgrid/smtp + factory
+│       └── sms_providers/    → PLANNED: base.py (interface) + bulksms (+ others) + factory — mirrors email_providers/
 └── frontend/
     └── src/
         ├── app/              → Pages: /, login, signup, dashboard, jobs, jobs/[id],
@@ -239,6 +240,9 @@ Engine: `DATABASE_URL` env (Postgres; `postgres://` auto-rewritten to `postgresq
 ### `email_settings`
 One row per user. `provider_name` + `credentials_encrypted` (Fernet JSON) + `from_name`/`from_email`.
 
+### `sms_settings` *(planned — mirrors `email_settings`)*
+One row per user: `provider_name` + `credentials_encrypted` (Fernet JSON) + `sender_id` (alphanumeric sender ID or sending number — SMS's "from") + `updated_at`. **Not yet implemented**; today SMS auth comes from global env (`BULKSMS_*`). See **Pluggable Providers**.
+
 ### `subscriptions`
 Dual-provider: `payment_provider` ("stripe"/"paystack"), Stripe customer/subscription IDs, Paystack codes, `tier`, `status` (active/cancelled/past_due/trialing), period bounds, `cancel_at_period_end`.
 
@@ -249,9 +253,112 @@ Job **data files** are NOT in the DB: `data/jobs/{job_id}/data.xlsx` (+ `valid_d
 
 ---
 
+## Pluggable Providers (Email & SMS)
+
+Outbound channels use a **provider abstraction**: the task layer depends only on an interface, and a factory picks the concrete provider from the user's saved settings. This is the canonical Strategy + Factory + Adapter example in the codebase (see `code-standards.md` → Design Principles & Patterns).
+
+### Email — implemented (the reference)
+
+```
+app/services/email_providers/
+  base.py        → EmailProvider (ABC: send(EmailMessage)) + EmailMessage dataclass
+  resend_provider.py / sendgrid_provider.py / smtp_provider.py   → implementations (Adapter over each SDK/API)
+  __init__.py    → create_provider(name, creds) factory + SMTP presets (Gmail/Outlook/Zoho/Yahoo/custom)
+```
+
+- Per-user config in the `email_settings` row: `provider_name`, `credentials_encrypted` (Fernet JSON), `from_name`, `from_email`.
+- Routes: `/email-settings` (GET status/providers, POST save — encrypts via `encryption.py`).
+- UI: `frontend/src/app/settings/email/page.tsx`; typed calls in `lib/api.ts` (`getEmailProviderStatus`, save).
+- `email_tasks.py` calls `create_provider(...)` and uses the returned `EmailProvider` — it never imports a concrete provider or an SDK directly. Credentials are decrypted only at send time, never logged.
+
+### SMS — planned (mirror email exactly)
+
+> **Status: not yet implemented.** Today `sms_tasks.py` talks to BulkSMS directly using global env vars (`BULKSMS_API_TOKEN` / `BULKSMS_API_URL`). The target below makes SMS a per-user, multi-provider, encrypted-credential system identical in shape to email. **Implement it by copying the email structure — do not invent a new mechanism.**
+
+Target structure:
+
+```
+app/services/sms_providers/
+  base.py        → SmsProvider (ABC: send(SmsMessage)) + SmsMessage dataclass (to, body, sender_id)
+  bulksms_provider.py   → first implementation (wraps the existing BulkSMS logic — Adapter)
+  __init__.py    → create_sms_provider(name, creds) factory + provider catalog
+  (room for e.g. Twilio / Termii / Africa's Talking, added the same way)
+```
+
+- New `sms_settings` table (mirrors `email_settings`) — see Database Schema above.
+- New routes `/sms-settings` mirroring `/email-settings` (GET status/providers, POST save — encrypted).
+- New UI `frontend/src/app/settings/sms/page.tsx` mirroring the email settings page; add an entry to the Settings hub + Sidebar, and typed `getSmsProviderStatus()` / save functions in `lib/api.ts`.
+- `sms_tasks.py` refactored to call `create_sms_provider(...)` and depend only on the `SmsProvider` interface — the direct BulkSMS/env coupling is removed.
+
+**Differences from email** (don't blindly copy these fields):
+- SMS has **no subject, no HTML, no attachments**. `SmsMessage` is `{to, body, sender_id}`. Keep the interface minimal (Interface Segregation) — don't carry email-shaped methods over.
+- "From" identity is a single **`sender_id`** (alphanumeric sender ID where the provider/country allows, otherwise a sending number) — not `from_name`/`from_email`.
+- **Phone normalization** is currently BulkSMS/Nigeria-specific (`0…` → `234…`) inside `sms_tasks.py`. In a multi-provider world it should move behind the provider (a per-provider `normalize()`) or become country-aware — decide where it lives when implementing.
+
+**Design rules** (so the SMS build stays consistent with email — these become invariants once shipped):
+- `sms_tasks` depends only on `SmsProvider`; it never imports a concrete provider or hits an SMS API directly (Dependency Inversion).
+- Credentials are Fernet-encrypted at rest (`encryption.py`, `ENCRYPTION_KEY`), decrypted only at send time, never logged.
+- **Fail fast** when the user has no SMS provider configured — mirror email's `is_configured` check (this replaces the current global-env fail-fast).
+- Adding a provider = a new class + factory registration only; `sms_tasks` is untouched (Open/Closed).
+- Migration: `BULKSMS_*` env may remain as an optional default during transition, but a configured `sms_settings` always wins; remove the global path once migrated.
+
+This unlocks non-Nigerian SMS, currently a Phase C item in `roadmap.md` ("Additional SMS providers").
+
+---
+
+## AI Generation & Model Tiering
+
+AI runs in two places today and is planned to grow to four across two cost tiers. Like the email/SMS channels, the target is a thin provider seam — but note most of this is **planned**, not built.
+
+### Current state
+
+| Call site | File | Model | Conversation memory |
+| --- | --- | --- | --- |
+| Template generation | `ai_generator.py` (`generate_template_from_content`) | `claude-sonnet-4-6` (hardcoded) | **None** — one-shot from docs + instructions + columns; prior turns are not threaded |
+| Email drafting | `routes/ai_email.py` | `claude-sonnet-4-6` (hardcoded) | **One step** — only the previous output is passed back as a flattened `context` string |
+| SMS drafting | — | — | no AI yet |
+
+AI calls are quota-gated by `check_ai_limit` + `increment_ai_usage` (see Billing). The large template `SYSTEM_PROMPT` is reused on every call — a prime prompt-caching target.
+
+### Planned: a thin AI seam + per-task model tiering
+
+> **Status: not yet implemented.** Today the model is hardcoded in two places with no real conversation contract. The target makes the model a per-task config choice and unifies every AI feature on one contract. Build it as ONE module — **not** a dynamic router with fallbacks.
+
+One entry point used by every AI feature:
+
+```
+ai.generate({ task, messages[], images?, columns? }) -> structured output
+```
+
+It centralizes, in one place: the **static task→model map** (the tiering — change models here and nowhere else), the **conversation contract** (a real `messages[]` transcript, not a flattened string), **prompt caching**, JSON-parse-and-repair, and the **AI-quota check** (so no feature — including the two new ones — can bypass billing).
+
+**Model tiering** (stakes-based — confirm exact models when implementing):
+
+| Task | Tier | Why |
+| --- | --- | --- |
+| Template generation | **top** (Claude Opus / GPT-5.5 / Gemini Pro) | quality-critical core output; low frequency → premium is cheap in absolute terms; needs image input |
+| In-job template editing | **top** | same output, same stakes |
+| Email drafting | **cheap** (Gemini Flash-Lite / GPT-4o-mini / DeepSeek) | low-stakes; the user edits the draft anyway |
+| SMS drafting | **cheap** | same |
+
+**Conversation context** ("keep context for the session"): the transcript is **client-held and replayed** on each call; the backend stays **stateless**. Do NOT introduce server-side conversation state — that would be another multi-worker consistency surface (the bug class in `failure-modes.md`). Endpoints accept `messages[]` instead of today's flattened `context` string. Guard token growth with prompt caching + capping/summarizing long threads.
+
+**In-job template editing — design rules** (the highest-stakes new feature):
+- **Fork, don't mutate** — edits write to a *job-local* template copy, never the shared `TemplateRow` (templates are public/system/shared; an edit must not leak to the library or other jobs).
+- **Edit, don't regenerate** — pass the current HTML as the base + the conversation so the model modifies rather than rebuilding from scratch (`generate_template_from_content` currently rebuilds).
+- **Use the job's real columns** — pass them in and validate every `{Placeholder}` resolves to a real column (closes the loop with the ColumnMapper).
+
+**Template-quality levers** (top tier alone is not enough): WeasyPrint silently drops unsupported CSS (no full flex/grid). Bake WeasyPrint's supported subset + page constraints into the system prompt, add few-shot good templates, and run a **render-and-check auto-fix pass**. "Best on the first try" is as much a prompt + validation problem as a model-tier one.
+
+**Vehicle (TBD):** OpenRouter (one integration, mix best-of-breed, keep Claude on the template tier) or single-vendor Gemini (Pro for templates, Flash-Lite for the rest). The seam is identical either way; only the client call differs.
+
+Tracked in `roadmap.md` Phase C ("AI capabilities upgrade"); the tiering decision is logged in `progress-tracker.md`.
+
+---
+
 ## Auth Model
 
-- **Backend:** `Depends(get_current_user)` on every protected router (everything except `/auth/*`, `/`, `/debug/db`, billing webhooks). JWT HS256, 24h expiry, `sub` = user id. Google login verifies `id_token` against Google's tokeninfo endpoint with `GOOGLE_CLIENT_ID`.
+- **Backend:** `Depends(get_current_user)` on every protected router (everything except `/auth/*`, `/`, billing webhooks). JWT HS256, 24h expiry, `sub` = user id. Google login verifies `id_token` against Google's tokeninfo endpoint with `GOOGLE_CLIENT_ID`.
 - **Frontend:** token in `localStorage.vp_token`; `lib/api.ts` injects `Authorization: Bearer` on every call and **auto-logs-out on 401** (clears `vp_*` keys, redirects to /login). `AuthProvider` hydrates the user on mount via `/auth/me`.
 - **Ownership:** every job/template access goes through `get_job_for_user()` / owner checks — a user can never load another user's job. Never add an endpoint that loads a job by ID without the user filter.
 
@@ -283,7 +390,7 @@ Region routing: `region == "NG"` → Paystack/NGN, else Stripe/USD. Webhooks: `/
 | `DATABASE_URL` | database.py | present = Postgres; absent = SQLite |
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `STRIPE_PRICE_CLASSIC` / `STRIPE_PRICE_PRO` | billing | |
 | `PAYSTACK_SECRET_KEY` / `PAYSTACK_WEBHOOK_SECRET` / `PAYSTACK_PLAN_CLASSIC` / `PAYSTACK_PLAN_PRO` | paystack | |
-| `BULKSMS_API_TOKEN` / `BULKSMS_API_URL` | sms_tasks | fail-fast guard if missing when SMS starts |
+| `BULKSMS_API_TOKEN` / `BULKSMS_API_URL` | sms_tasks | fail-fast guard if missing when SMS starts. *Planned:* superseded by per-user encrypted `sms_settings`; kept only as an optional default during migration (see Pluggable Providers) |
 | `FRONTEND_URL` | billing redirects | default http://localhost:3000 |
 | `CORS_ORIGINS` | main.py | comma-separated, required in prod |
 | `STORAGE_BACKEND` | storage.py | force "local"/"s3"; else auto-detect via `BUCKET` |

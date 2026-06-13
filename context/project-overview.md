@@ -2,11 +2,11 @@
 
 ## About the Project
 
-VolleyPacket is a full-stack platform for **generating and distributing personalized documents in bulk**. A user uploads a spreadsheet of recipients (e.g. exam candidates), chooses or AI-generates an HTML template, and the system renders a personalized PDF for every row using WeasyPrint. It then distributes those documents through multiple channels — email, SMS, and photo collection — tracking every send and producing a delivery report.
+VolleyPacket is a full-stack platform for **generating and distributing personalized documents in bulk**. A user uploads a spreadsheet of recipients (e.g. exam candidates), chooses or AI-generates an HTML template, and the system renders a personalized PDF for every row using WeasyPrint. It then delivers those documents to recipients by **email and SMS**, tracking every send and producing a delivery report. It can also collect and optimize recipient photos from cloud links — to embed into the documents or hand back as a downloadable bundle.
 
-The original and primary use case is **exam/candidate packet distribution**: an administrator has a list of candidates in Excel, needs to produce a personalized slip or packet for each one, and email or text it to them, then download proof of delivery.
+The original and primary use case is **exam/candidate packet distribution**: an administrator has a list of candidates in Excel, needs to produce a personalized slip or packet for each one, and email and/or text it to them, then download proof of delivery.
 
-The whole platform is multi-tenant — users sign in, configure their own email provider, and work within subscription tier limits.
+The whole platform is **multi-user with strict per-user data isolation** — each account is its own tenant. Users sign in, configure their own email provider, and work within their own subscription tier; no user can see another's jobs, templates, or settings. There are no organizations, teams, or SSO (Google login is social sign-in, not SAML/SSO) — org-level accounts are a future roadmap item.
 
 ---
 
@@ -125,7 +125,7 @@ Billing is region-routed: **Stripe** for international (USD), **Paystack** for N
 
 ## Current State
 
-VolleyPacket is **~halfway built and in a stabilization phase**, not greenfield. The core pipeline (upload → template → PDF → email/SMS/photos → report) works end to end. Active branch is `v2.0`.
+VolleyPacket is **~halfway built and in a stabilization phase**, not greenfield. The core pipeline (upload → template → PDF → delivery by email/SMS, plus photo collection and delivery reports) works end to end. Active branch is `v2.0`.
 
 Recent work has concentrated almost entirely on **reliability of the async job system** under real deployment conditions:
 - multi-worker task-state consistency (DB-backed state, `tasks_json` merging)
@@ -140,7 +140,7 @@ The recurring failure modes from this work are catalogued in `failure-modes.md`.
 
 ## In Scope
 
-- Multi-tenant auth (email/password + Google OAuth)
+- Per-user accounts + auth (email/password + Google OAuth), with every resource scoped per user
 - Candidate file upload + parsing (Excel/CSV) with messy-data repair
 - Template library (system + user templates, public/private, tier-gated)
 - AI template generation from uploaded documents/images (Claude)

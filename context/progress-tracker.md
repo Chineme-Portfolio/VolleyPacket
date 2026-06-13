@@ -8,9 +8,9 @@ Update this file after every working session. Any agent reading this should imme
 
 **Branch:** `v2.0` (default branch for PRs: `main`)
 **Phase:** B — Stabilization (see `roadmap.md`)
-**Current focus:** Billing hardening — Stripe webhook/customer-ID fixes just landed; end-to-end verification on both providers is the open item.
-**Last completed:** Subscription cancel/resume + account deletion (`009abc9`)
-**Next:** Verify the full checkout → webhook → tier-change path (Stripe and Paystack), then webhook idempotency.
+**Current focus:** Billing hardening is **done**; the only open billing item is **testing the Paystack route end-to-end** (checkout → webhook → tier change).
+**Last completed:** Billing hardening — Stripe webhook/customer-ID fixes + subscription cancel/resume + account deletion (`009abc9`).
+**Next:** Test the Paystack route → then begin the Phase C **AI capabilities upgrade** (build the AI seam first — see `roadmap.md` + `architecture.md` § AI Generation & Model Tiering).
 
 ---
 
@@ -21,7 +21,6 @@ Update this file after every working session. Any agent reading this should imme
 - [ ] *(none recorded yet — when you hit the next bug, log it here with: symptom, where observed (local/prod), suspected failure class from `failure-modes.md`)*
 
 ### Watchlist (suspected, not yet confirmed bugs)
-- `/debug/db` is live and unauthenticated — remove after billing verification wraps.
 - `clean_email()` can over-repair (insert `@` into non-emails) — no confirmed mis-send yet; watch reports.
 - Webhook handlers not yet verified idempotent against replayed events.
 - Failed email/SMS rows have no targeted retry — rerunning a send task re-sends to everyone in valid_data (PDFs skip existing; sends don't).
@@ -46,6 +45,7 @@ The load-bearing decisions and the reasoning — do not re-litigate these withou
 - **Image media types from magic bytes, never extensions** (`4ea9dbc`, `4262218`).
 - **SSE reads light jobs from DB on a 2s/10s cadence; TaskPanel is presentation-only** — polling lifecycle lives in the job-detail page (`0f583d2`, `c53ec31`, `51df5eb`).
 - **Frontend: one API wrapper (`lib/api.ts`) with auto-logout on 401; `vp_`-prefixed localStorage keys.**
+- **AI model tiering via a thin per-task seam (planned).** Template generation/editing → top-tier model (quality-critical, low-frequency, the core output); email/SMS drafting → cheap model (low-stakes, user-edited). One `ai` seam holds a *static* task→model map + a real `messages[]` conversation contract — **client-replayed, backend stateless** (no server-side conversation state; that would be another multi-worker consistency surface) — plus centralized prompt caching, JSON-repair, and AI-quota checks. Earned now (≥2 real tiers across 4 call sites: template-gen, in-job edit, email, SMS) — but **not** a dynamic router. Vehicle TBD: OpenRouter (best-of-breed mix, keep Claude for templates) vs single-vendor Gemini (Pro + Flash-Lite). Template-tier quality comes from a WeasyPrint-aware prompt + render-check, not model tier alone. Full design in `architecture.md` § AI Generation & Model Tiering.
 
 ---
 
@@ -91,6 +91,15 @@ The load-bearing decisions and the reasoning — do not re-litigate these withou
 ## Session Notes
 
 > Append a dated entry per session: what was done, how it was verified, gotchas discovered.
+
+### 2026-06-13 — Context-system refinement + AI planning
+- `code-standards.md`: added **Design Principles & Patterns** (SOLID anchored to `storage`/`email_providers`; GoF reference table; "earn the abstraction" guardrails).
+- `architecture.md`: added **Pluggable Providers (Email & SMS)** (SMS to mirror email's provider/factory/encrypted-settings pattern — planned) and **AI Generation & Model Tiering** (the planned AI seam, `messages[]` contract, per-task tiering).
+- `project-overview.md`: corrected wording — photos is *collection*, not a delivery channel; "multi-tenant" → precise per-user tenancy (no orgs/SSO).
+- `roadmap.md`: billing hardening marked done pending the **Paystack route test**; added the **AI capabilities upgrade** workstream (seam → SMS composer → in-job template editing).
+- **Removed the `/debug/db` route** (`app/main.py`) — unauthenticated; built 2026-05-23 for DB diagnosis during the auto-migration work, no longer needed. Synced the route references in `architecture.md` and `roadmap.md`.
+- Decision recorded: **AI model tiering + thin seam** (see Decisions).
+- Maintainer reported: billing hardening done; only the Paystack route test remains.
 
 ### 2026-06-10 — Context system created
 - Built the 9-file context system in `context/` (this directory), grounded in the codebase + git history: project-overview, architecture, code-standards, library-docs, **failure-modes** (diagnostic backbone), ui-guidelines, ui-registry, roadmap, progress-tracker. Root `CLAUDE.md` added as the entry point.
