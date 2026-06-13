@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import dynamic from "next/dynamic";
 import {
   getJobTemplate,
   saveJobTemplate,
@@ -61,6 +62,17 @@ function saveChat(jobId: string, messages: ChatMsg[]) {
 }
 
 const GENERATING_TEXT = "Editing the template…";
+
+// CodeMirror needs the DOM and is sizeable — lazy-load it so it only ships
+// when the HTML tab is actually opened.
+const HtmlCodeEditor = dynamic(() => import("@/components/HtmlCodeEditor"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-full flex items-center justify-center">
+      <div className="w-4 h-4 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+    </div>
+  ),
+});
 
 export default function JobTemplateEditor({
   jobId,
@@ -175,7 +187,7 @@ export default function JobTemplateEditor({
       applyTemplate(t);
       await refreshPreview();
       onChanged?.();
-      toast("Template saved");
+      toast("Template saved", "success");
     } catch (err) {
       toast(friendlyError(err));
     } finally {
@@ -197,7 +209,7 @@ export default function JobTemplateEditor({
       applyTemplate(t);
       await refreshPreview();
       onChanged?.();
-      toast("Template saved");
+      toast("Template saved", "success");
     } catch (err) {
       toast(friendlyError(err));
     } finally {
@@ -267,7 +279,7 @@ export default function JobTemplateEditor({
       applyTemplate(t);
       await refreshPreview();
       onChanged?.();
-      toast("Template reset to original");
+      toast("Template reset to original", "success");
     } catch (err) {
       toast(friendlyError(err));
     } finally {
@@ -434,12 +446,9 @@ export default function JobTemplateEditor({
                         <code className="font-mono text-gray-600">{"{EMBEDDED_IMAGE_N}"}</code> and restored
                         on save.
                       </p>
-                      <textarea
-                        value={htmlDraft}
-                        onChange={(e) => setHtmlDraft(e.target.value)}
-                        spellCheck={false}
-                        className="flex-1 w-full px-3 py-2 rounded-xl border border-gray-200 bg-white text-xs text-gray-800 outline-none focus:ring-2 focus:ring-green-700/20 focus:border-green-300 font-mono resize-none"
-                      />
+                      <div className="flex-1 overflow-hidden rounded-xl border border-gray-200 bg-white focus-within:ring-2 focus-within:ring-green-700/20 focus-within:border-green-300">
+                        <HtmlCodeEditor value={htmlDraft} onChange={setHtmlDraft} />
+                      </div>
                       <div className="flex items-center gap-3 mt-3">
                         <button
                           onClick={handleSaveHtml}
@@ -524,14 +533,16 @@ export default function JobTemplateEditor({
                           Clear
                         </button>
                       </div>
-                      <iframe
-                        ref={editIframeRef}
-                        title="Rich text editor"
-                        srcDoc={template.html_content}
-                        sandbox="allow-same-origin"
-                        onLoad={handleEditIframeLoad}
-                        className="flex-1 w-full rounded-xl border border-gray-200 bg-white"
-                      />
+                      <div className="flex-1 rounded-xl border border-gray-200 bg-green-50 p-3 sm:p-4 overflow-auto">
+                        <iframe
+                          ref={editIframeRef}
+                          title="Rich text editor"
+                          srcDoc={template.html_content}
+                          sandbox="allow-same-origin"
+                          onLoad={handleEditIframeLoad}
+                          className="w-full h-full rounded-md bg-white shadow-sm border-0"
+                        />
+                      </div>
                       <div className="flex items-center gap-3 mt-3">
                         <button
                           onClick={handleSaveRichText}
@@ -580,16 +591,18 @@ export default function JobTemplateEditor({
                       <div className="w-3.5 h-3.5 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
                     )}
                   </div>
-                  {previewUrl ? (
-                    <iframe
-                      title="Template preview"
-                      src={previewUrl}
-                      sandbox="allow-same-origin"
-                      className="flex-1 w-full rounded-xl border border-gray-200 bg-white"
-                    />
-                  ) : (
-                    <div className="flex-1 rounded-xl border border-gray-200 bg-gray-50" />
-                  )}
+                  <div className="flex-1 rounded-xl border border-gray-200 bg-green-50 p-3 sm:p-4 overflow-auto">
+                    {previewUrl ? (
+                      <iframe
+                        title="Template preview"
+                        src={previewUrl}
+                        sandbox="allow-same-origin"
+                        className="w-full h-full rounded-md bg-white shadow-sm border-0"
+                      />
+                    ) : (
+                      <div className="w-full h-full rounded-md bg-white shadow-sm" />
+                    )}
+                  </div>
                 </div>
               </div>
 

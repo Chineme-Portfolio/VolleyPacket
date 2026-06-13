@@ -234,7 +234,7 @@ Never add a package without checking: does the stdlib, pandas, or an existing de
 
 Approved backend (requirements.txt): fastapi, uvicorn/gunicorn, sqlalchemy, psycopg2-binary, pandas, numpy, openpyxl, weasyprint, pillow, anthropic, stripe, boto3, bcrypt, PyJWT, cryptography, email-validator, resend, requests, beautifulsoup4, PyPDF2, python-docx, python-multipart, python-dotenv, tqdm.
 
-Approved frontend (package.json): next 16, react 19, framer-motion, tailwindcss v4 (+ @tailwindcss/postcss), typescript, eslint.
+Approved frontend (package.json): next 16, react 19, framer-motion, tailwindcss v4 (+ @tailwindcss/postcss), typescript, eslint, @uiw/react-codemirror + @codemirror/lang-html (syntax-highlighted HTML editor for the in-job template editor's HTML tab — lazy-loaded via `next/dynamic`, kept off the initial bundle).
 
 Adding anything else = update this list in the same commit and state why.
 

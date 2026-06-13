@@ -32,7 +32,7 @@ export default function SmsComposer({ jobId, columns, initialBody, onSaved }: Sm
     setSaving(true);
     try {
       await setSmsContent(jobId, body);
-      toast("SMS content saved");
+      toast("SMS content saved", "success");
       onSaved?.();
     } catch (err) {
       toast(friendlyError(err));
