@@ -74,6 +74,15 @@ const HtmlCodeEditor = dynamic(() => import("@/components/HtmlCodeEditor"), {
   ),
 });
 
+const PAGE_MARGIN_RE = /@page\b[^{]*\{[^}]*?\bmargin\s*:\s*([^;}]+)/i;
+const EDITOR_MARGIN_STYLE_ID = "vp-editor-margin";
+
+/** The template's @page margin (browsers ignore @page on screen; mirrors the backend's add_preview_page_margins). */
+function extractPageMargin(html: string): string {
+  const m = html.match(PAGE_MARGIN_RE);
+  return m ? m[1].trim() : "15mm 20mm";
+}
+
 export default function JobTemplateEditor({
   jobId,
   columns,
@@ -201,10 +210,12 @@ export default function JobTemplateEditor({
     setSaving(true);
     try {
       const body = doc.body;
-      // Don't persist the editing affordance into the saved HTML / PDF.
+      // Strip editing-only affordances so they never persist into the saved HTML / PDF:
+      // the contenteditable flag and the on-screen page-margin style.
       body?.removeAttribute("contenteditable");
+      doc.getElementById(EDITOR_MARGIN_STYLE_ID)?.remove();
       const html = "<!DOCTYPE html>\n" + doc.documentElement.outerHTML;
-      if (body) body.setAttribute("contenteditable", "true");
+      handleEditIframeLoad(); // restore editing chrome in case the save fails
       const t = await saveJobTemplate(jobId, html);
       applyTemplate(t);
       await refreshPreview();
@@ -219,7 +230,18 @@ export default function JobTemplateEditor({
 
   function handleEditIframeLoad() {
     const doc = editIframeRef.current?.contentDocument;
-    if (doc?.body) doc.body.setAttribute("contenteditable", "true");
+    if (!doc) return;
+    if (doc.body) doc.body.setAttribute("contenteditable", "true");
+    // Reproduce the template's @page margin on screen (browsers ignore @page; WeasyPrint
+    // honors it in the PDF). Marked by id + wrapped in @media screen so it's stripped
+    // before save and is inert in WeasyPrint anyway — never persisted into the template.
+    if (doc.head && !doc.getElementById(EDITOR_MARGIN_STYLE_ID)) {
+      const style = doc.createElement("style");
+      style.id = EDITOR_MARGIN_STYLE_ID;
+      const margin = template ? extractPageMargin(template.html_content) : "15mm 20mm";
+      style.textContent = `@media screen{html{box-sizing:border-box;padding:${margin};background:#fff}}`;
+      doc.head.appendChild(style);
+    }
   }
 
   function exec(command: string, value?: string) {
