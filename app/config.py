@@ -34,6 +34,9 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 # "AI Generation & Model Tiering"). In-job template editing is the flagship,
 # low-frequency output, so it runs on the top tier.
 AI_MODEL_TEMPLATE_EDIT = os.getenv("AI_MODEL_TEMPLATE_EDIT", "claude-opus-4-8")
+# Email + SMS drafting ("Ask Volley") — lower-stakes, higher-frequency than templates,
+# and the user edits the draft anyway, so this is the cheaper tier (swappable here).
+AI_MODEL_EMAIL_SMS = os.getenv("AI_MODEL_EMAIL_SMS", "claude-sonnet-4-6")
 
 # Stripe
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")

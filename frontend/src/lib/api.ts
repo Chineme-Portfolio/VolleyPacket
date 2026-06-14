@@ -422,17 +422,6 @@ export async function setEmailContent(
   });
 }
 
-export async function generateEmailAI(
-  prompt: string,
-  columns: string[],
-  context?: string,
-): Promise<{ subject: string; body: string }> {
-  return fetchJSON("/ai-email/generate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, columns, context: context || "" }),
-  });
-}
 
 
 // ── Column Mapping ──────────────────────────────────────────────────
@@ -531,6 +520,57 @@ export async function getJobTemplatePreviewUrl(jobId: string): Promise<string> {
   const html = await res.text();
   const blob = new Blob([html], { type: "text/html" });
   return URL.createObjectURL(blob);
+}
+
+
+// ── Ask Volley — AI chats (server-persisted per job) ─────────────────
+
+export interface AiChats {
+  template: JobTemplateChatMessage[];
+  email: JobTemplateChatMessage[];
+  sms: JobTemplateChatMessage[];
+}
+
+/** Load all per-channel Ask Volley transcripts for a job (fast — light load). */
+export async function getJobAiChats(jobId: string): Promise<AiChats> {
+  return fetchJSON(`/jobs/${jobId}/ai-chats`);
+}
+
+/** Replace one channel's transcript (used for "Clear"). */
+export async function setJobAiChat(
+  jobId: string,
+  channel: "template" | "email" | "sms",
+  messages: JobTemplateChatMessage[],
+): Promise<{ message: string }> {
+  return fetchJSON(`/jobs/${jobId}/ai-chats/${channel}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages }),
+  });
+}
+
+/** Ask Volley: draft/refine the job's email. Applies to the job + persists the transcript. */
+export async function aiDraftEmail(
+  jobId: string,
+  messages: JobTemplateChatMessage[],
+): Promise<{ subject: string; body: string; summary: string }> {
+  return fetchJSON(`/jobs/${jobId}/email/ai-draft`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages }),
+  });
+}
+
+/** Ask Volley: draft/refine the job's SMS. Applies to the job + persists the transcript. */
+export async function aiDraftSms(
+  jobId: string,
+  messages: JobTemplateChatMessage[],
+): Promise<{ body: string; summary: string }> {
+  return fetchJSON(`/jobs/${jobId}/sms/ai-draft`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages }),
+  });
 }
 
 

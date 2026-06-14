@@ -8,11 +8,14 @@ import {
   aiEditJobTemplate,
   resetJobTemplate,
   getJobTemplatePreviewUrl,
+  getJobAiChats,
+  setJobAiChat,
   type JobTemplate,
 } from "@/lib/api";
 import { stripImages, injectImages } from "@/lib/templateImages";
 import { friendlyError } from "@/lib/errors";
 import { useToast } from "@/components/Toast";
+import AskVolleyChat, { type ChatMsg, msgId } from "@/components/AskVolleyChat";
 
 interface JobTemplateEditorProps {
   jobId: string;
@@ -26,40 +29,12 @@ interface JobTemplateEditorProps {
 
 type Tab = "prompt" | "html" | "richtext";
 
-interface ChatMsg {
-  id: string;
-  role: "user" | "assistant" | "system";
-  text: string;
-}
-
-const CHAT_KEY = "vp_job_template_chat";
-
 const WELCOME: ChatMsg = {
   id: "welcome",
   role: "assistant",
   text:
-    'Describe a change and I\'ll edit this job\'s template — e.g. "make the header navy", "add a signature line under the body", or "increase the body font size". Your spreadsheet columns and a few sample rows are sent as context, and embedded images (logo, signature, letterhead) are always preserved.',
+    'Ask Volley to change this template — e.g. "make the header navy", "add a signature line under the body", or "increase the body font size". Your columns and a few sample rows are sent as context, and embedded images (logo, signature, letterhead) are always preserved.',
 };
-
-const msgId = () => Date.now().toString() + Math.random().toString(36).slice(2);
-
-function loadChat(jobId: string): ChatMsg[] {
-  if (typeof window === "undefined") return [WELCOME];
-  try {
-    const raw = localStorage.getItem(`${CHAT_KEY}_${jobId}`);
-    if (raw) {
-      const parsed = JSON.parse(raw) as ChatMsg[];
-      return parsed.filter((m) => m.role !== "system");
-    }
-  } catch {}
-  return [WELCOME];
-}
-
-function saveChat(jobId: string, messages: ChatMsg[]) {
-  try {
-    localStorage.setItem(`${CHAT_KEY}_${jobId}`, JSON.stringify(messages));
-  } catch {}
-}
 
 const GENERATING_TEXT = "Editing the template…";
 
@@ -112,11 +87,11 @@ export default function JobTemplateEditor({
   // Rich-text tab
   const editIframeRef = useRef<HTMLIFrameElement>(null);
 
-  // AI tab
-  const [messages, setMessages] = useState<ChatMsg[]>(() => loadChat(jobId));
+  // Ask Volley tab
+  const [messages, setMessages] = useState<ChatMsg[]>([WELCOME]);
   const [chatInput, setChatInput] = useState("");
   const [generating, setGenerating] = useState(false);
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  const [chatLoaded, setChatLoaded] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -169,13 +144,22 @@ export default function JobTemplateEditor({
     setTemplate(null);
   }, [templateId]);
 
-  // Persist chat + autoscroll
+  // Load the server-persisted Ask Volley transcript on first open.
+  const loadChat = useCallback(async () => {
+    try {
+      const chats = await getJobAiChats(jobId);
+      const t = chats.template;
+      setMessages(t && t.length ? t.map((m) => ({ id: msgId(), role: m.role, text: m.content })) : [WELCOME]);
+    } catch {
+      setMessages([WELCOME]);
+    } finally {
+      setChatLoaded(true);
+    }
+  }, [jobId]);
+
   useEffect(() => {
-    saveChat(jobId, messages);
-  }, [messages, jobId]);
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (expanded && !chatLoaded) loadChat();
+  }, [expanded, chatLoaded, loadChat]);
 
   // Revoke the preview object URL on unmount.
   useEffect(
@@ -288,6 +272,13 @@ export default function JobTemplateEditor({
     }
   }
 
+  async function handleClearChat() {
+    setMessages([WELCOME]);
+    try {
+      await setJobAiChat(jobId, "template", []);
+    } catch {}
+  }
+
   async function handleReset() {
     if (
       !window.confirm(
@@ -384,7 +375,7 @@ export default function JobTemplateEditor({
             <>
               {/* Tabs */}
               <div className="flex gap-1 border-b border-gray-100 mb-4">
-                {tabBtn("prompt", "Prompt")}
+                {tabBtn("prompt", "Ask Volley")}
                 {tabBtn("html", "HTML")}
                 {tabBtn("richtext", "Rich text")}
               </div>
@@ -392,72 +383,18 @@ export default function JobTemplateEditor({
               <div className="grid lg:grid-cols-2 gap-4">
                 {/* Editor column */}
                 <div className="min-h-[420px] flex flex-col">
-                  {/* Prompt / AI tab */}
+                  {/* Ask Volley tab */}
                   {activeTab === "prompt" && (
-                    <div className="flex flex-col h-[420px] border border-gray-100 rounded-xl overflow-hidden">
-                      <div className="flex items-center justify-between px-4 py-1.5 bg-amber-50 border-b border-amber-100">
-                        <p className="text-[11px] text-amber-600">
-                          Edits apply immediately. Chat is saved locally; clears on logout.
-                        </p>
-                        {messages.length > 1 && (
-                          <button
-                            onClick={() => setMessages([WELCOME])}
-                            className="text-[11px] text-amber-500 hover:text-amber-700 transition-colors"
-                          >
-                            Clear
-                          </button>
-                        )}
-                      </div>
-                      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-gray-50/50">
-                        {messages.map((msg) => (
-                          <div
-                            key={msg.id}
-                            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-                          >
-                            {msg.role === "system" ? (
-                              <div className="flex items-center gap-2 text-xs text-gray-400 italic">
-                                <div className="w-3 h-3 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
-                                {msg.text}
-                              </div>
-                            ) : (
-                              <div
-                                className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
-                                  msg.role === "user"
-                                    ? "bg-green-800 text-white rounded-br-md"
-                                    : "bg-white border border-gray-200 text-gray-800 rounded-bl-md"
-                                }`}
-                              >
-                                {msg.text}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                        <div ref={chatEndRef} />
-                      </div>
-                      <div className="px-4 py-3 border-t border-gray-100 bg-white">
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="text"
-                            value={chatInput}
-                            onChange={(e) => setChatInput(e.target.value)}
-                            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleAiSend()}
-                            placeholder="Describe a change to this template…"
-                            className="flex-1 bg-gray-100 rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 outline-none focus:ring-2 focus:ring-green-700/20 transition-shadow"
-                            disabled={generating}
-                          />
-                          <button
-                            onClick={handleAiSend}
-                            disabled={generating || !chatInput.trim()}
-                            className="flex-shrink-0 w-10 h-10 rounded-xl bg-green-800 flex items-center justify-center hover:bg-green-900 transition-colors disabled:opacity-50"
-                          >
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                              <path d="M22 2L11 13" />
-                              <path d="M22 2L15 22L11 13L2 9L22 2Z" />
-                            </svg>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
+                    <AskVolleyChat
+                      messages={messages}
+                      input={chatInput}
+                      onInput={setChatInput}
+                      onSend={handleAiSend}
+                      onClear={handleClearChat}
+                      generating={generating}
+                      placeholder="Ask Volley to change this template…"
+                      notice="Edits apply immediately and are saved with the job."
+                    />
                   )}
 
                   {/* HTML tab */}

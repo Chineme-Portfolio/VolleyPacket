@@ -20,7 +20,7 @@ from app.services.sms_tasks import start_sms_send
 from app.services.photo_tasks import start_photo_download
 from app.services.report_tasks import generate_report
 from app.services.storage import store
-from app.services.ai_generator import edit_template_with_ai, extract_placeholders
+from app.services.ai_generator import edit_template_with_ai, extract_placeholders, draft_email_with_ai, draft_sms_with_ai
 from app.services.template_renderer import fill_placeholders, render_html_preview, add_preview_page_margins
 from app.dependencies import get_current_user
 from app.database import UserRow, EmailSettingsRow, get_session
@@ -471,6 +471,7 @@ def ai_edit_job_template(job_id: str, req: AiEditRequest, user: UserRow = Depend
     job.template.html_content = new_html
     job.template.placeholders = extract_placeholders(new_html)
     job.column_mapping_confirmed = False
+    job.set_ai_chat("template", [m.model_dump() for m in req.messages] + [{"role": "assistant", "content": summary}])
     job.save()
 
     return {"template": job.template.model_dump(), "summary": summary}
@@ -496,6 +497,112 @@ def reset_job_template(job_id: str, user: UserRow = Depends(get_current_user)):
     job.column_mapping_confirmed = False
     job.save()
     return job.template.model_dump()
+
+
+# --- ASK VOLLEY: EMAIL + SMS DRAFTING + CHAT TRANSCRIPTS ---
+# AI drafts apply to the job immediately and persist the conversation on the job
+# (JobRow.ai_chats_json), so it survives logout/device/refresh. The AI calls stay
+# stateless — the client replays the full messages[] each turn; the DB is the backup.
+
+_AI_CHANNELS = ("template", "email", "sms")
+
+
+@router.post("/{job_id}/email/ai-draft")
+def ai_draft_email(job_id: str, req: AiEditRequest, user: UserRow = Depends(get_current_user)):
+    """Draft/refine the job's email (subject + HTML body) via Ask Volley; applies + persists."""
+    job = _get_job_or_404(job_id, user)
+    if job.tasks["emails"].status == "running":
+        raise HTTPException(status_code=409, detail="Cannot edit the email while it is sending")
+    if not req.messages or req.messages[-1].role != "user":
+        raise HTTPException(status_code=400, detail="Provide a conversation ending with a user instruction.")
+
+    allowed, current, limit = check_ai_limit(user.id)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=f"You've used all {limit} AI messages this month. Upgrade your plan for more.")
+
+    sent = [m.model_dump() for m in req.messages]
+    try:
+        subject, body, summary = draft_email_with_ai(
+            columns=job.columns,
+            sample_rows=_job_sample_rows(job),
+            current_subject=job.email_subject,
+            current_body=job.email_body,
+            messages=sent,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"AI draft failed: {e}")
+
+    increment_ai_usage(user.id)
+    job.email_subject = subject
+    job.email_body = body
+    job.set_ai_chat("email", sent + [{"role": "assistant", "content": summary}])
+    job.save()
+    return {"subject": subject, "body": body, "summary": summary}
+
+
+@router.post("/{job_id}/sms/ai-draft")
+def ai_draft_sms(job_id: str, req: AiEditRequest, user: UserRow = Depends(get_current_user)):
+    """Draft/refine the job's SMS (plain text) via Ask Volley; applies + persists."""
+    job = _get_job_or_404(job_id, user)
+    if job.tasks["sms"].status == "running":
+        raise HTTPException(status_code=409, detail="Cannot edit the SMS while it is sending")
+    if not req.messages or req.messages[-1].role != "user":
+        raise HTTPException(status_code=400, detail="Provide a conversation ending with a user instruction.")
+
+    allowed, current, limit = check_ai_limit(user.id)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=f"You've used all {limit} AI messages this month. Upgrade your plan for more.")
+
+    sent = [m.model_dump() for m in req.messages]
+    try:
+        body, summary = draft_sms_with_ai(
+            columns=job.columns,
+            sample_rows=_job_sample_rows(job),
+            current_body=job.sms_body,
+            messages=sent,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"AI draft failed: {e}")
+
+    increment_ai_usage(user.id)
+    job.sms_body = body
+    job.set_ai_chat("sms", sent + [{"role": "assistant", "content": summary}])
+    job.save()
+    return {"body": body, "summary": summary}
+
+
+@router.get("/{job_id}/ai-chats")
+def get_ai_chats(job_id: str, user: UserRow = Depends(get_current_user)):
+    """Return the per-channel Ask Volley transcripts for this job (fast, light load)."""
+    job = _get_job_or_404_light(job_id, user)
+    return {ch: job.get_ai_chat(ch) for ch in _AI_CHANNELS}
+
+
+@router.put("/{job_id}/ai-chats/{channel}")
+def set_ai_chat_route(job_id: str, channel: str, req: AiEditRequest, user: UserRow = Depends(get_current_user)):
+    """Replace one channel's transcript (e.g. 'Clear'). Targeted DB write — avoids a full load + save."""
+    if channel not in _AI_CHANNELS:
+        raise HTTPException(status_code=400, detail="Invalid channel")
+    _get_job_or_404_light(job_id, user)  # ownership check (raises 404 if not owner)
+
+    from app.database import get_session, JobRow
+    session = get_session()
+    try:
+        row = session.get(JobRow, job_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Job not found")
+        try:
+            chats = json.loads(row.ai_chats_json or "{}")
+            if not isinstance(chats, dict):
+                chats = {}
+        except (json.JSONDecodeError, TypeError):
+            chats = {}
+        chats[channel] = [m.model_dump() for m in req.messages]
+        row.ai_chats_json = json.dumps(chats)
+        session.commit()
+    finally:
+        session.close()
+    return {"message": "saved"}
 
 
 @router.get("/{job_id}/template/preview")
@@ -808,6 +915,10 @@ def send_sms(job_id: str, user: UserRow = Depends(get_current_user)):
     phone_cols = [c for c in job.columns if c.lower() in ("phone", "phonenumber", "phone_number", "mobile", "tel")]
     if not phone_cols:
         raise HTTPException(status_code=400, detail="No phone number column found in data (expected Phone, PhoneNumber, or Mobile)")
+
+    # SMS body must be set — we never silently send a generic fallback message.
+    if not (job.sms_body or "").strip():
+        raise HTTPException(status_code=400, detail="Set SMS content before sending SMS.")
 
     if job.tasks["sms"].status == "running":
         raise HTTPException(status_code=409, detail="SMS send already running")

@@ -57,14 +57,20 @@ Maps template `{Placeholders}` to spreadsheet columns. Shows auto-matched pairs,
 ### JobLogViewer — `components/JobLogViewer.tsx` (234 lines)
 Tabular viewer for per-run CSV logs (email/sms/photo): fetches `getJobLogs()` / `getJobLog()` with pagination, renders headers + rows, per-log download via `downloadJobLog()`.
 
-### EmailComposer — `components/EmailComposer.tsx` (364 lines)
-Subject + HTML body editor with `{Placeholder}` chips (mono blue chips per ui-guidelines) and an **AI draft assistant** (calls `generateEmailAI()` with the job's columns; chat state persisted in `localStorage.vp_email_chat_{jobId}`). Saves via `setEmailContent()`.
+### EmailComposer — `components/EmailComposer.tsx`
+Accordion with a subject input + **Ask Volley / Rich text / HTML** tabs over `email_body`. Ask Volley (`aiDraftEmail`) applies subject+body immediately and persists; Rich text (`RichTextEditor`) + HTML (lazy `HtmlCodeEditor`) share the same body and save via `setEmailContent`. Server-persisted chat via `getJobAiChats`/`setJobAiChat`. Amber column chips + blue `{sender_*}` chips.
 
-### SmsComposer — `components/SmsComposer.tsx` (140 lines)
-SMS body editor with placeholder chips + character awareness. Saves via `setSmsContent()`.
+### SmsComposer — `components/SmsComposer.tsx`
+Accordion with **Edit / Ask Volley** tabs. Plain text only — SMS can't render HTML/rich text. Edit = textarea + amber chips + char/segment count → `setSmsContent`; Ask Volley (`aiDraftSms`) applies the body immediately + persists. Server-persisted chat.
+
+### AskVolleyChat — `components/AskVolleyChat.tsx`
+The shared **Ask Volley** chat panel for the template/email/SMS composers — presentational + controlled (the parent owns messages/input/persistence + what each turn does). User bubbles green-800, assistant white, a `system` role renders the spinner line; amber notice bar with a Clear button. Exports `ChatMsg` + `msgId`.
+
+### RichTextEditor — `components/RichTextEditor.tsx`
+Lightweight fragment WYSIWYG: a `contenteditable` div + `execCommand` toolbar (bold/italic/underline/lists/align/link/clear) for HTML *fragments* like the email body. `value`/`onChange` (HTML string); pushes an external `value` into the DOM only when unfocused so typing isn't interrupted. (Full HTML *documents* use the iframe approach in JobTemplateEditor instead.)
 
 ### JobTemplateEditor — `components/JobTemplateEditor.tsx`
-Accordion (SmsComposer collapsible-header pattern) for editing a job's **forked** template, shown on the job page for `dynamic_pdf` jobs. Three tabs (EmailComposer tab pattern): **Prompt** (AI chat → `aiEditJobTemplate()`, persisted in `localStorage.vp_job_template_chat_{jobId}`), **HTML** (CodeMirror via lazy-loaded `HtmlCodeEditor` → `saveJobTemplate()`; base64 images hidden as `{EMBEDDED_IMAGE_N}` via `lib/templateImages.ts`, re-injected on save), **Rich text** (iframe `sandbox="allow-same-origin"` + `contenteditable` body + `execCommand` toolbar; edits visible text while preserving `<style>`/`@page`/images). Side **preview** iframe via `getJobTemplatePreviewUrl()` (Blob URL — revoke on replace). **Reset to original** re-forks via `resetJobTemplate()`. Lazy-loads on first expand; locked (`disabled`) while a task runs; `onChanged` → parent `loadJob()`. Otherwise reuses the house card / primary+subtle buttons / tabs / spinner / input-focus-ring patterns from `ui-guidelines.md`.
+Accordion (SmsComposer collapsible-header pattern) for editing a job's **forked** template, shown on the job page for `dynamic_pdf` jobs. Three tabs (EmailComposer tab pattern): **Ask Volley** (shared `AskVolleyChat` → `aiEditJobTemplate()`, server-persisted via `getJobAiChats`/`ai_chats_json`), **HTML** (CodeMirror via lazy-loaded `HtmlCodeEditor` → `saveJobTemplate()`; base64 images hidden as `{EMBEDDED_IMAGE_N}` via `lib/templateImages.ts`, re-injected on save), **Rich text** (iframe `sandbox="allow-same-origin"` + `contenteditable` body + `execCommand` toolbar; edits visible text while preserving `<style>`/`@page`/images). Side **preview** iframe via `getJobTemplatePreviewUrl()` (Blob URL — revoke on replace). **Reset to original** re-forks via `resetJobTemplate()`. Lazy-loads on first expand; locked (`disabled`) while a task runs; `onChanged` → parent `loadJob()`. Otherwise reuses the house card / primary+subtle buttons / tabs / spinner / input-focus-ring patterns from `ui-guidelines.md`.
 - **Document/preview "mat":** an iframe'd page floats on a tinted backdrop so it reads like paper in a viewer. On-screen `@page` margins are emulated (browsers ignore `@page`): preview via the backend's `add_preview_page_margins`, rich-text via an injected, save-stripped `@media screen` style. Now documented in `ui-guidelines.md` § Document / preview viewer.
 - Placeholder chips use the standard **amber** merge-field chip per `ui-guidelines.md`. (Resolved 2026-06-13: SmsComposer's green chips were aligned to amber and the guideline corrected from blue → amber; blue stays reserved for EmailComposer's `{sender_*}` tokens.)
 

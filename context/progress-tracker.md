@@ -8,9 +8,9 @@ Update this file after every working session. Any agent reading this should imme
 
 **Branch:** `v2.0` (default branch for PRs: `main`)
 **Phase:** B — Stabilization (see `roadmap.md`)
-**Current focus:** Phase C **AI capabilities upgrade** has started with **in-job template editing** (first slice). Open from Phase B: **testing the Paystack route end-to-end** (checkout → webhook → tier change).
-**Last completed:** In-job template editing — per-job template fork + prompt/HTML/rich-text editing (uncommitted, this session).
-**Next:** Live smoke test of in-job editing on a real backend (needs WeasyPrint + `ANTHROPIC_API_KEY`) → the proper AI seam (to absorb the focused edit function + email/SMS) → Paystack route test.
+**Current focus:** Phase C **AI capabilities upgrade** — **"Ask Volley"** now spans template + email + SMS, with server-persisted per-job conversations. Open from Phase B: **testing the Paystack route end-to-end** (checkout → webhook → tier change).
+**Last completed:** Feature 2 — email/SMS accordion + rich-text/HTML/AI editors, server-persisted Ask Volley chats, the SMS default-override fix, and the "Ask Volley" rebrand (this session).
+**Next:** Live smoke test of email/SMS Ask Volley + the SMS fix on a real backend (needs WeasyPrint + `ANTHROPIC_API_KEY`) → the proper unified AI seam (absorb all four call sites + model tiering) → Paystack route test.
 
 ---
 
@@ -92,6 +92,15 @@ The load-bearing decisions and the reasoning — do not re-litigate these withou
 ## Session Notes
 
 > Append a dated entry per session: what was done, how it was verified, gotchas discovered.
+
+### 2026-06-13 — Feature 2: email/SMS expansion + "Ask Volley"
+- **"Ask Volley"** is now the brand for all AI drafting (template/email/SMS) — tab labels + chat copy.
+- **Email** is now an accordion with **Ask Volley / Rich text / HTML** tabs over `email_body` (subject = plain input). **SMS** got **Edit / Ask Volley** tabs (plain text only — SMS can't render HTML). Template editor's "Prompt" tab renamed to **Ask Volley**.
+- **Server-persisted conversations:** new `JobRow.ai_chats_json` (`{template,email,sms}` of `{role,content}`). AI-draft endpoints persist the transcript on each turn; `GET /jobs/{id}/ai-chats` loads it (fast — light loader parses it); `PUT /jobs/{id}/ai-chats/{channel}` handles Clear. The AI calls stay **stateless** (client replays full `messages[]`; DB is the durable backup) — NOT a violation of the "no server-side live conversation state" rule. Template chat migrated off localStorage onto this.
+- **New backend:** `draft_email_with_ai` / `draft_sms_with_ai` in `ai_generator.py` (mirror `edit_template_with_ai`); `config.AI_MODEL_EMAIL_SMS` (default `claude-sonnet-4-6`, cheap-tier swappable); routes `POST /jobs/{id}/email/ai-draft` + `/sms/ai-draft` (quota-paired, apply + persist). Old `/ai-email/generate` left in place but unused (frontend wrapper removed).
+- **SMS override fix:** removed the silent `DEFAULT_SMS_BODY` fallback in `sms_tasks.py`; `/sms/send` now 400s if `sms_body` is empty — the user's content is the only thing that sends. (Email's identical `DEFAULT_EMAIL_BODY` left as-is — known parallel, out of scope.)
+- **New shared frontend:** `AskVolleyChat.tsx` (reusable chat panel) + `RichTextEditor.tsx` (fragment WYSIWYG, contenteditable — no iframe since email body is a fragment). Email/SMS Ask Volley **apply immediately** (auto-save) like the template editor.
+- **Verified:** `tsc` + `next build` clean; backend round-trip on SQLite (ai_chats migration + transcript persist + light-load reads); SMS-empty → 400 guard in place. **Not yet:** live AI-call + browser smoke test (needs WeasyPrint + API key).
 
 ### 2026-06-13 — In-job template editing (Phase C, first slice)
 - **Feature:** edit a job's PDF template inside the job — by AI **prompt**, raw **HTML**, and visible-text **rich text** — in a collapsible accordion on the job page.

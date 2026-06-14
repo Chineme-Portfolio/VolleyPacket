@@ -32,9 +32,6 @@ def normalize_phone(raw):
     return list(dict.fromkeys(normalized))
 
 
-DEFAULT_SMS_BODY = "Dear {Name}, this is a notification regarding your application. Please check your email for further details."
-
-
 def render_sms(template: str, row: dict) -> str:
     """Replace {Placeholder} tokens in SMS body with row values."""
     message = template
@@ -71,7 +68,9 @@ def run_sms_send(job: Job):
         data = job.data
         logger.info(f"[sms_send] Job {job.job_id}: starting SMS send — {len(data)} recipients")
 
-        sms_template = getattr(job, "sms_body", "") or DEFAULT_SMS_BODY
+        # Use the job's SMS content verbatim — never a hardcoded generic message.
+        # The /sms/send route guarantees this is non-empty before the task starts.
+        sms_template = job.sms_body or ""
 
         os.makedirs(config.LOG_FOLDER, exist_ok=True)
         log_path = os.path.join(config.LOG_FOLDER, f"sms_run_{job.timestamp}.csv")

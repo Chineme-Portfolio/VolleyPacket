@@ -158,6 +158,9 @@ class Job:
         # SMS content (customizable per job)
         self.sms_body = ""  # Plain text with {Name}, {ExamNo} placeholders
 
+        # "Ask Volley" chat transcripts, per channel ("template"/"email"/"sms")
+        self.ai_chats = {}
+
         # Logs
         self.log_path = None
 
@@ -199,6 +202,17 @@ class Job:
             tasks=self.tasks,
         )
 
+    # --- Ask Volley chat transcripts ---
+
+    def get_ai_chat(self, channel: str) -> list:
+        chats = getattr(self, "ai_chats", None)
+        return chats.get(channel, []) if isinstance(chats, dict) else []
+
+    def set_ai_chat(self, channel: str, messages: list):
+        if not isinstance(getattr(self, "ai_chats", None), dict):
+            self.ai_chats = {}
+        self.ai_chats[channel] = messages
+
     # --- Database persistence ---
 
     def save(self, include_data=False):
@@ -239,6 +253,8 @@ class Job:
             # the shared TemplateRow. Only deliberate user edits change this —
             # no background thread writes it, so it's safe outside the tasks_json merge.
             row.template_json = json.dumps(self.template.model_dump()) if self.template else None
+            # Ask Volley transcripts — only changed by user-initiated AI turns (no thread race).
+            row.ai_chats_json = json.dumps(self.ai_chats) if getattr(self, "ai_chats", None) else None
             row.job_mode = self.job_mode
             row.email_subject = self.email_subject
             row.email_body = self.email_body
@@ -391,6 +407,14 @@ class Job:
         job.pdf_folder = None
         job.static_attachment_path = None
         job.log_path = None
+
+        # Ask Volley chat transcripts (per channel)
+        try:
+            job.ai_chats = json.loads(getattr(row, "ai_chats_json", None) or "{}")
+            if not isinstance(job.ai_chats, dict):
+                job.ai_chats = {}
+        except Exception:
+            job.ai_chats = {}
 
         # Prefer the job-local fork (template_json) — it holds in-job edits.
         # Fall back to the shared library template for jobs created before forking
@@ -848,6 +872,12 @@ def _lightweight_job_from_row(row) -> Job:
     job.valid_data = None
     job.invalid_data = None
     job.template = None
+    try:
+        job.ai_chats = json.loads(getattr(row, "ai_chats_json", None) or "{}")
+        if not isinstance(job.ai_chats, dict):
+            job.ai_chats = {}
+    except Exception:
+        job.ai_chats = {}
     job.pdf_folder = None
     job.static_attachment_path = None
     job.log_path = None

@@ -1,9 +1,27 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { setEmailContent, generateEmailAI } from "@/lib/api";
+import { useState, useEffect, useCallback } from "react";
+import dynamic from "next/dynamic";
+import {
+  setEmailContent,
+  getJobAiChats,
+  setJobAiChat,
+  aiDraftEmail,
+  type JobTemplateChatMessage,
+} from "@/lib/api";
 import { friendlyError } from "@/lib/errors";
 import { useToast } from "@/components/Toast";
+import AskVolleyChat, { type ChatMsg, msgId } from "@/components/AskVolleyChat";
+import RichTextEditor from "@/components/RichTextEditor";
+
+const HtmlCodeEditor = dynamic(() => import("@/components/HtmlCodeEditor"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-full flex items-center justify-center">
+      <div className="w-4 h-4 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+    </div>
+  ),
+});
 
 interface EmailComposerProps {
   jobId: string;
@@ -13,78 +31,73 @@ interface EmailComposerProps {
   onSaved?: () => void;
 }
 
-interface ChatMsg {
-  id: string;
-  role: "user" | "assistant" | "system";
-  text: string;
-  subject?: string;
-  body?: string;
-}
+type Tab = "askvolley" | "richtext" | "html";
 
-const EMAIL_CHAT_KEY = "vp_email_chat";
-
-const WELCOME_EMAIL_MSG: ChatMsg = {
+const WELCOME: ChatMsg = {
   id: "welcome",
   role: "assistant",
-  text: "Describe the email you want to send and I'll generate the subject and body for you. I'll use your spreadsheet columns as placeholders.\n\nExample: \"A formal invitation to a training workshop on March 15th\"",
+  text:
+    "Ask Volley to draft or refine this email — e.g. \"a formal invitation to the oral interview\" or \"make the tone warmer and add the venue\". I'll use your spreadsheet columns plus {sender_name}/{sender_title} as placeholders, and apply changes here immediately.",
 };
 
-function loadEmailChat(jobId: string): ChatMsg[] {
-  if (typeof window === "undefined") return [WELCOME_EMAIL_MSG];
-  try {
-    const raw = localStorage.getItem(`${EMAIL_CHAT_KEY}_${jobId}`);
-    if (raw) {
-      const parsed = JSON.parse(raw) as ChatMsg[];
-      return parsed.filter((m) => m.role !== "system");
-    }
-  } catch {}
-  return [WELCOME_EMAIL_MSG];
+const GENERATING_TEXT = "Drafting the email…";
+
+function toChatMsgs(transcript: JobTemplateChatMessage[] | undefined): ChatMsg[] {
+  if (!transcript || transcript.length === 0) return [WELCOME];
+  return transcript.map((m) => ({ id: msgId(), role: m.role, text: m.content }));
 }
 
-function saveEmailChat(jobId: string, messages: ChatMsg[]) {
-  try {
-    localStorage.setItem(`${EMAIL_CHAT_KEY}_${jobId}`, JSON.stringify(messages));
-  } catch {}
-}
-
-export default function EmailComposer({
-  jobId,
-  columns,
-  initialSubject,
-  initialBody,
-  onSaved,
-}: EmailComposerProps) {
+export default function EmailComposer({ jobId, columns, initialSubject, initialBody, onSaved }: EmailComposerProps) {
   const { toast } = useToast();
+  const [expanded, setExpanded] = useState(false);
+  const [activeTab, setActiveTab] = useState<Tab>("askvolley");
+
   const [subject, setSubject] = useState(initialSubject);
   const [body, setBody] = useState(initialBody);
+  const [savedSubject, setSavedSubject] = useState(initialSubject);
+  const [savedBody, setSavedBody] = useState(initialBody);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
-  const [activeTab, setActiveTab] = useState<"editor" | "ai">("editor");
 
-  // AI chat state — persisted per job
-  const [messages, setMessages] = useState<ChatMsg[]>(() => loadEmailChat(jobId));
+  // Ask Volley
+  const [messages, setMessages] = useState<ChatMsg[]>([WELCOME]);
   const [chatInput, setChatInput] = useState("");
   const [generating, setGenerating] = useState(false);
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  const [chatLoaded, setChatLoaded] = useState(false);
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  // Persist email chat to localStorage
+    setSubject(initialSubject);
+    setSavedSubject(initialSubject);
+  }, [initialSubject]);
   useEffect(() => {
-    saveEmailChat(jobId, messages);
-  }, [messages, jobId]);
+    setBody(initialBody);
+    setSavedBody(initialBody);
+  }, [initialBody]);
+
+  const loadChat = useCallback(async () => {
+    try {
+      const chats = await getJobAiChats(jobId);
+      setMessages(toChatMsgs(chats.email));
+    } catch {
+      setMessages([WELCOME]);
+    } finally {
+      setChatLoaded(true);
+    }
+  }, [jobId]);
+
+  useEffect(() => {
+    if (expanded && !chatLoaded) loadChat();
+  }, [expanded, chatLoaded, loadChat]);
+
+  const dirty = subject !== savedSubject || body !== savedBody;
 
   async function handleSave() {
     setSaving(true);
-    setSaved(false);
     try {
       await setEmailContent(jobId, subject, body);
-      setSaved(true);
+      setSavedSubject(subject);
+      setSavedBody(body);
       onSaved?.();
-      setTimeout(() => setSaved(false), 3000);
+      toast("Email content saved", "success");
     } catch (err) {
       toast(friendlyError(err));
     } finally {
@@ -92,117 +105,90 @@ export default function EmailComposer({
     }
   }
 
-  async function handleAIGenerate() {
+  async function handleAskVolley() {
     const text = chatInput.trim();
     if (!text || generating) return;
     setChatInput("");
 
-    const msgId = () => Date.now().toString() + Math.random().toString(36).slice(2);
+    const transcript: JobTemplateChatMessage[] = messages
+      .filter((m) => m.id !== "welcome" && (m.role === "user" || m.role === "assistant") && m.text)
+      .map((m) => ({ role: m.role as "user" | "assistant", content: m.text }));
+    transcript.push({ role: "user", content: text });
 
     setMessages((prev) => [...prev, { id: msgId(), role: "user", text }]);
-    setMessages((prev) => [...prev, { id: msgId(), role: "system", text: "Generating email content..." }]);
+    setMessages((prev) => [...prev, { id: msgId(), role: "system", text: GENERATING_TEXT }]);
     setGenerating(true);
-
     try {
-      const lastAI = messages.filter((m) => m.body).pop();
-      const result = await generateEmailAI(text, columns, lastAI?.body || "");
-
+      const res = await aiDraftEmail(jobId, transcript);
+      // AI applied + saved server-side — sync local editors + baseline.
+      setSubject(res.subject);
+      setBody(res.body);
+      setSavedSubject(res.subject);
+      setSavedBody(res.body);
+      onSaved?.();
       setMessages((prev) =>
-        prev
-          .filter((m) => m.text !== "Generating email content...")
-          .concat({
-            id: msgId(),
-            role: "assistant",
-            text: `Here's your email:\n\n**Subject:** ${result.subject}\n\nYou can use it as-is or describe changes.`,
-            subject: result.subject,
-            body: result.body,
-          })
+        prev.filter((m) => m.text !== GENERATING_TEXT).concat({ id: msgId(), role: "assistant", text: res.summary || "Updated the email." })
       );
     } catch (err) {
       setMessages((prev) =>
-        prev
-          .filter((m) => m.text !== "Generating email content...")
-          .concat({
-            id: msgId(),
-            role: "assistant",
-            text: `Generation failed. ${friendlyError(err)}`,
-          })
+        prev.filter((m) => m.text !== GENERATING_TEXT).concat({ id: msgId(), role: "assistant", text: `Draft failed. ${friendlyError(err)}` })
       );
     } finally {
       setGenerating(false);
     }
   }
 
-  function handleUseGenerated(s: string, b: string) {
-    setSubject(s);
-    setBody(b);
-    setActiveTab("editor");
+  async function handleClearChat() {
+    setMessages([WELCOME]);
+    try {
+      await setJobAiChat(jobId, "email", []);
+    } catch {}
   }
 
-  // Preview: replace placeholders with sample data
-  function previewHtml() {
-    let html = body;
-    columns.forEach((col) => {
-      html = html.replace(new RegExp(`\\{${col}\\}`, "g"), `<span style="background:#fef3c7;padding:1px 4px;border-radius:3px;">${col}</span>`);
-    });
-    html = html.replace(/\{sender_name\}/g, '<span style="background:#dbeafe;padding:1px 4px;border-radius:3px;">Sender Name</span>');
-    html = html.replace(/\{sender_title\}/g, '<span style="background:#dbeafe;padding:1px 4px;border-radius:3px;">Sender Title</span>');
-    return html;
+  function insertPlaceholder(token: string) {
+    if (activeTab === "richtext") document.execCommand("insertText", false, token);
+    else if (activeTab === "html") setBody((b) => b + token);
   }
+
+  const tabBtn = (tab: Tab, label: string) => (
+    <button
+      onClick={() => setActiveTab(tab)}
+      className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+        activeTab === tab ? "bg-green-50 text-green-800 border-b-2 border-green-700" : "text-gray-500 hover:text-gray-700"
+      }`}
+    >
+      {label}
+    </button>
+  );
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      {/* Header with tabs */}
-      <div className="px-5 pt-4 pb-0">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-900">Email Content</h3>
-          <div className="flex items-center gap-1.5">
-            {saved && (
-              <span className="text-xs text-green-600 font-medium mr-2">Saved!</span>
-            )}
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="px-3 py-1.5 text-xs font-medium bg-green-800 text-white rounded-lg hover:bg-green-900 transition-colors disabled:opacity-50"
-            >
-              {saving ? "Saving..." : "Save"}
-            </button>
+      {/* Collapsible header */}
+      <button type="button" onClick={() => setExpanded(!expanded)} className="w-full flex items-center justify-between px-5 py-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center flex-shrink-0">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#15803d" strokeWidth="2">
+              <rect x="2" y="4" width="20" height="16" rx="2" />
+              <path d="M22 7l-10 6L2 7" />
+            </svg>
+          </div>
+          <div className="text-left">
+            <h3 className="text-sm font-semibold text-gray-900">Email Content</h3>
+            <p className="text-xs text-gray-500">{savedSubject ? savedSubject : "Not configured"}</p>
           </div>
         </div>
-        <div className="flex gap-1 border-b border-gray-100">
-          <button
-            onClick={() => setActiveTab("editor")}
-            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
-              activeTab === "editor"
-                ? "bg-green-50 text-green-800 border-b-2 border-green-700"
-                : "text-gray-500 hover:text-gray-700"
-            }`}
-          >
-            Editor
-          </button>
-          <button
-            onClick={() => setActiveTab("ai")}
-            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors flex items-center gap-1.5 ${
-              activeTab === "ai"
-                ? "bg-green-50 text-green-800 border-b-2 border-green-700"
-                : "text-gray-500 hover:text-gray-700"
-            }`}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4Z" />
-              <path d="M6 10v2a6 6 0 0 0 12 0v-2" />
-              <path d="M12 18v4M8 22h8" />
-            </svg>
-            AI Compose
-          </button>
-        </div>
-      </div>
+        <svg
+          width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2"
+          className={`transition-transform ${expanded ? "rotate-180" : ""}`}
+        >
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
 
-      {/* Editor tab */}
-      {activeTab === "editor" && (
-        <div className="p-5 space-y-4">
+      {expanded && (
+        <div className="px-5 pb-5">
           {/* Subject */}
-          <div>
+          <div className="mb-4">
             <label className="block text-xs font-medium text-gray-700 mb-1.5">Subject Line</label>
             <input
               type="text"
@@ -213,152 +199,81 @@ export default function EmailComposer({
             />
           </div>
 
-          {/* Body */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-medium text-gray-700">Email Body (HTML)</label>
-              <button
-                onClick={() => setShowPreview(!showPreview)}
-                className="text-xs text-green-700 font-medium hover:text-green-800"
-              >
-                {showPreview ? "Edit" : "Preview"}
-              </button>
-            </div>
-            {showPreview ? (
-              <div
-                className="w-full min-h-[200px] p-4 rounded-xl border border-gray-200 bg-gray-50 text-sm prose prose-sm max-w-none"
-                dangerouslySetInnerHTML={{ __html: previewHtml() }}
-              />
-            ) : (
-              <textarea
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                rows={10}
-                placeholder="<p>Dear {Name},</p><p>Your message here...</p>"
-                className="w-full px-3 py-2 rounded-xl border border-gray-200 bg-white text-sm text-gray-800 placeholder-gray-400 outline-none focus:ring-2 focus:ring-green-700/20 focus:border-green-300 font-mono"
-              />
-            )}
+          {/* Tabs */}
+          <div className="flex gap-1 border-b border-gray-100 mb-4">
+            {tabBtn("askvolley", "Ask Volley")}
+            {tabBtn("richtext", "Rich text")}
+            {tabBtn("html", "HTML")}
           </div>
 
-          {/* Placeholders help */}
-          <div className="bg-gray-50 rounded-xl p-3">
-            <p className="text-xs font-medium text-gray-600 mb-2">Available Placeholders</p>
-            <div className="flex flex-wrap gap-1.5">
-              {columns.map((col) => (
-                <button
-                  key={col}
-                  onClick={() => {
-                    if (!showPreview) setBody((b) => b + `{${col}}`);
-                  }}
-                  className="px-2 py-0.5 text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded-md font-mono hover:bg-amber-100 transition-colors"
-                >
-                  {`{${col}}`}
-                </button>
-              ))}
-              <span className="px-2 py-0.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-md font-mono">
-                {"{sender_name}"}
-              </span>
-              <span className="px-2 py-0.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-md font-mono">
-                {"{sender_title}"}
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
+          {activeTab === "askvolley" && (
+            <AskVolleyChat
+              messages={messages}
+              input={chatInput}
+              onInput={setChatInput}
+              onSend={handleAskVolley}
+              onClear={handleClearChat}
+              generating={generating}
+              placeholder="Ask Volley to draft or change this email…"
+            />
+          )}
 
-      {/* AI tab */}
-      {activeTab === "ai" && (
-        <div className="flex flex-col h-[320px] sm:h-[420px]">
-          {/* Chat notice */}
-          <div className="flex items-center justify-between px-5 py-1.5 bg-amber-50 border-b border-amber-100">
-            <p className="text-[11px] text-amber-600">Chat history is saved locally and clears when you log out.</p>
-            {messages.length > 1 && (
-              <button
-                onClick={() => setMessages([WELCOME_EMAIL_MSG])}
-                className="text-[11px] text-amber-500 hover:text-amber-700 transition-colors"
-              >
-                Clear
-              </button>
-            )}
-          </div>
-          {/* Chat messages */}
-          <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 space-y-3 bg-gray-50/50">
-            {messages.map((msg) => (
-              <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                {msg.role === "system" ? (
-                  <div className="flex items-center gap-2 text-xs text-gray-400 italic">
-                    <div className="w-3 h-3 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
-                    {msg.text}
-                  </div>
-                ) : (
-                  <div
-                    className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                      msg.role === "user"
-                        ? "bg-green-800 text-white rounded-br-md"
-                        : "bg-white border border-gray-200 text-gray-800 rounded-bl-md"
-                    }`}
-                  >
-                    <BoldText text={msg.text} />
-                    {msg.subject && msg.body && (
-                      <button
-                        onClick={() => handleUseGenerated(msg.subject!, msg.body!)}
-                        className="mt-3 px-3 py-1.5 text-xs font-medium rounded-lg bg-green-700 text-white hover:bg-green-800 transition-colors"
-                      >
-                        Use This Email
-                      </button>
-                    )}
-                  </div>
-                )}
+          {activeTab === "richtext" && <RichTextEditor value={body} onChange={setBody} />}
+
+          {activeTab === "html" && (
+            <div className="flex flex-col h-[420px]">
+              <div className="flex-1 overflow-hidden rounded-xl border border-gray-200 bg-white focus-within:ring-2 focus-within:ring-green-700/20 focus-within:border-green-300">
+                <HtmlCodeEditor value={body} onChange={setBody} />
               </div>
-            ))}
-            <div ref={chatEndRef} />
-          </div>
-
-          {/* Input */}
-          <div className="px-5 py-3 border-t border-gray-100 bg-white">
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleAIGenerate()}
-                placeholder="Describe the email you want..."
-                className="flex-1 bg-gray-100 rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 outline-none focus:ring-2 focus:ring-green-700/20 transition-shadow"
-                disabled={generating}
-              />
-              <button
-                onClick={handleAIGenerate}
-                disabled={generating || !chatInput.trim()}
-                className="flex-shrink-0 w-10 h-10 rounded-xl bg-green-800 flex items-center justify-center hover:bg-green-900 transition-colors disabled:opacity-50"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                  <path d="M22 2L11 13" />
-                  <path d="M22 2L15 22L11 13L2 9L22 2Z" />
-                </svg>
-              </button>
             </div>
-          </div>
+          )}
+
+          {/* Placeholder chips (not on the chat tab) */}
+          {activeTab !== "askvolley" && (
+            <div className="mt-3 bg-gray-50 rounded-xl p-3">
+              <p className="text-xs font-medium text-gray-600 mb-2">Insert placeholder</p>
+              <div className="flex flex-wrap gap-1.5">
+                {columns.map((col) => (
+                  <button
+                    key={col}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => insertPlaceholder(`{${col}}`)}
+                    className="px-2 py-0.5 text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded-md font-mono hover:bg-amber-100 transition-colors"
+                  >
+                    {`{${col}}`}
+                  </button>
+                ))}
+                {["{sender_name}", "{sender_title}"].map((token) => (
+                  <button
+                    key={token}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => insertPlaceholder(token)}
+                    className="px-2 py-0.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-md font-mono hover:bg-blue-100 transition-colors"
+                  >
+                    {token}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Footer: manual save (Ask Volley applies immediately) */}
+          {activeTab !== "askvolley" && (
+            <div className="flex items-center gap-3 mt-4 pt-4 border-t border-gray-100">
+              <button
+                onClick={handleSave}
+                disabled={saving || !dirty}
+                className="px-4 py-2 text-sm font-medium text-white bg-green-800 rounded-xl hover:bg-green-900 transition-colors disabled:opacity-50"
+              >
+                {saving ? "Saving…" : "Save Email Content"}
+              </button>
+              {dirty && <span className="text-xs text-amber-600">Unsaved changes</span>}
+            </div>
+          )}
         </div>
       )}
-    </div>
-  );
-}
-
-function BoldText({ text }: { text: string }) {
-  const parts = text.split(/(\*\*.*?\*\*)/g);
-  return (
-    <div>
-      {parts.map((part, i) => {
-        if (part.startsWith("**") && part.endsWith("**")) {
-          return <strong key={i}>{part.slice(2, -2)}</strong>;
-        }
-        return part.split("\n").map((line, j) => (
-          <span key={`${i}-${j}`}>
-            {j > 0 && <br />}
-            {line}
-          </span>
-        ));
-      })}
     </div>
   );
 }

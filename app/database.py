@@ -86,6 +86,7 @@ class JobRow(Base):
 
     template_id = Column(String, nullable=True)  # FK to the ORIGIN library template (for reset/display)
     template_json = Column(Text, nullable=True)  # job-local fork of TemplateConfig — edits live here, never on TemplateRow
+    ai_chats_json = Column(Text, nullable=True)  # per-channel "Ask Volley" transcripts: {"template":[],"email":[],"sms":[]}
     job_mode = Column(String, nullable=False, default="dynamic_pdf")
     email_subject = Column(String, nullable=False, default="")
     email_body = Column(Text, nullable=False, default="")

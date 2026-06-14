@@ -338,3 +338,156 @@ def edit_template_with_ai(
 
     html = reinject_embedded_images(html, image_map)
     return html, summary
+
+
+# ── Ask Volley: email + SMS drafting ────────────────────────────────────────
+
+def _ask_volley_messages(base_user: str, ack: str, messages: list) -> list:
+    """Build the Anthropic messages[] for an Ask Volley turn: a base-context user
+    turn + assistant ack, then the client-held transcript (must end with a user turn)."""
+    api_messages = [
+        {"role": "user", "content": base_user},
+        {"role": "assistant", "content": ack},
+    ]
+    for m in (messages or []):
+        role = m.get("role")
+        content = (m.get("content") or "").strip()
+        if role in ("user", "assistant") and content:
+            api_messages.append({"role": role, "content": content})
+    if api_messages[-1]["role"] != "user":
+        raise ValueError("The conversation must end with a user instruction.")
+    return api_messages
+
+
+def _parse_ai_json(text: str) -> dict:
+    raw = (text or "").strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+    return json.loads(raw)
+
+
+def _columns_context(columns: list, sample_rows: list) -> str:
+    lines = []
+    if columns:
+        lines.append(
+            "Spreadsheet columns available as placeholders (use ONLY these): "
+            + ", ".join("{" + str(c) + "}" for c in columns)
+        )
+    if sample_rows:
+        try:
+            lines.append("Sample data rows (for realistic content):\n"
+                         + json.dumps([dict(r) for r in sample_rows[:3]], indent=2, default=str))
+        except Exception:
+            pass
+    return ("\n\n".join(lines) + "\n\n") if lines else ""
+
+
+EMAIL_SYSTEM_PROMPT = """You are "Ask Volley", the email assistant for VolleyPacket, a batch mail-merge platform.
+
+You draft and refine an email's SUBJECT and HTML BODY that will be sent to many recipients via mail merge. You are given the current draft and a conversation — refine it to exactly what the user asks; do not rebuild from scratch unless they ask.
+
+PLACEHOLDERS:
+- Use {Column} merge fields from the spreadsheet columns provided — ONLY those names.
+- Also available: {sender_name}, {sender_title} (the sender's identity). End the email with a signature using them.
+
+EMAIL HTML RULES (the body is an email, not a web page):
+- The body is an HTML FRAGMENT — inner content only. No <html>/<head>/<body>/<style> tags and no external CSS.
+- Inline styles only. Professional font stack: Arial, sans-serif. Text color #2C2C2C, line-height 1.6.
+- Keep it clean and email-client-safe (divs/tables + inline styles).
+- Include a small footer line "Powered by VolleyPacket.com" unless the user asks to remove it.
+
+OUTPUT FORMAT — return ONLY a JSON object:
+{
+  "subject": "the subject line (may include placeholders)",
+  "body": "the HTML fragment body",
+  "summary": "one short sentence describing what you changed"
+}
+Return ONLY valid JSON — no markdown, no code fences, no explanation."""
+
+
+def draft_email_with_ai(
+    columns: list = None,
+    sample_rows: list = None,
+    current_subject: str = "",
+    current_body: str = "",
+    messages: list = None,
+) -> tuple[str, str, str]:
+    """Draft/refine an email (subject + HTML body) via Ask Volley. Returns (subject, body, summary)."""
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    current = (
+        f"CURRENT SUBJECT:\n{current_subject or '(none yet)'}\n\n"
+        f"CURRENT BODY (HTML fragment):\n{current_body or '(none yet)'}"
+    )
+    base_user = (
+        "Here is the current email draft to edit/refine. Apply the change(s) I describe "
+        "next, keeping the rest intact.\n\n" + _columns_context(columns, sample_rows) + current
+    )
+    api_messages = _ask_volley_messages(
+        base_user,
+        "Got it — I have the current email and the available columns. What would you like?",
+        messages,
+    )
+    response = client.messages.create(
+        model=config.AI_MODEL_EMAIL_SMS,
+        max_tokens=4096,
+        system=EMAIL_SYSTEM_PROMPT,
+        messages=api_messages,
+    )
+    data = _parse_ai_json(response.content[0].text)
+    subject = (data.get("subject") or "").strip()
+    body = (data.get("body") or "").strip()
+    if not body:
+        raise ValueError("AI returned an empty email body.")
+    summary = (data.get("summary") or "").strip() or "Updated the email."
+    return subject, body, summary
+
+
+SMS_SYSTEM_PROMPT = """You are "Ask Volley", the SMS assistant for VolleyPacket, a batch SMS platform.
+
+You draft and refine ONE SMS message sent to many recipients via mail merge. You are given the current draft and a conversation — refine it to what the user asks.
+
+RULES:
+- SMS is PLAIN TEXT only — no HTML, no markdown, no emojis unless the user asks.
+- Be concise. Aim for a single segment (~160 characters) unless the user wants longer; longer messages cost more segments.
+- Use {Column} merge fields from the spreadsheet columns provided — ONLY those names.
+- No links unless the user provides one. No "Powered by" footer.
+
+OUTPUT FORMAT — return ONLY a JSON object:
+{
+  "body": "the plain-text SMS",
+  "summary": "one short sentence describing what you changed"
+}
+Return ONLY valid JSON — no markdown, no code fences, no explanation."""
+
+
+def draft_sms_with_ai(
+    columns: list = None,
+    sample_rows: list = None,
+    current_body: str = "",
+    messages: list = None,
+) -> tuple[str, str]:
+    """Draft/refine a plain-text SMS via Ask Volley. Returns (body, summary)."""
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    base_user = (
+        "Here is the current SMS draft to edit/refine. Apply the change(s) I describe "
+        "next, keeping the rest intact.\n\n"
+        + _columns_context(columns, sample_rows)
+        + f"CURRENT SMS:\n{current_body or '(none yet)'}"
+    )
+    api_messages = _ask_volley_messages(
+        base_user,
+        "Got it — I have the current SMS and the available columns. What would you like?",
+        messages,
+    )
+    response = client.messages.create(
+        model=config.AI_MODEL_EMAIL_SMS,
+        max_tokens=1024,
+        system=SMS_SYSTEM_PROMPT,
+        messages=api_messages,
+    )
+    data = _parse_ai_json(response.content[0].text)
+    body = (data.get("body") or "").strip()
+    if not body:
+        raise ValueError("AI returned an empty SMS body.")
+    summary = (data.get("summary") or "").strip() or "Updated the SMS."
+    return body, summary
