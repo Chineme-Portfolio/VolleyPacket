@@ -58,10 +58,10 @@ Maps template `{Placeholders}` to spreadsheet columns. Shows auto-matched pairs,
 Tabular viewer for per-run CSV logs (email/sms/photo): fetches `getJobLogs()` / `getJobLog()` with pagination, renders headers + rows, per-log download via `downloadJobLog()`.
 
 ### EmailComposer — `components/EmailComposer.tsx`
-Accordion with a subject input + **Ask Volley / Rich text / HTML** tabs over `email_body`. Ask Volley (`aiDraftEmail`) applies subject+body immediately and persists; Rich text (`RichTextEditor`) + HTML (lazy `HtmlCodeEditor`) share the same body and save via `setEmailContent`. Server-persisted chat via `getJobAiChats`/`setJobAiChat`. Amber column chips.
+Accordion with a subject input + **Ask Volley / Rich text / HTML** tabs over `email_body`. Ask Volley (`aiDraftEmail`) applies subject+body immediately and persists; Rich text (`RichTextEditor`) + HTML (lazy `HtmlCodeEditor`) share the same body and save via `setEmailContent`. Server-persisted chat via `getJobAiChats`/`setJobAiChat`. Amber column chips. Warns when the subject/body contain `{placeholders}` that don't match a column.
 
 ### SmsComposer — `components/SmsComposer.tsx`
-Accordion with **Edit / Ask Volley** tabs. Plain text only — SMS can't render HTML/rich text. Edit = textarea + amber chips + char/segment count → `setSmsContent`; Ask Volley (`aiDraftSms`) applies the body immediately + persists. Server-persisted chat.
+Accordion with **Edit / Ask Volley** tabs. Plain text only — SMS can't render HTML/rich text. Edit = textarea + amber chips + char/segment count → `setSmsContent`; Ask Volley (`aiDraftSms`) applies the body immediately + persists. Server-persisted chat. Live first-recipient preview (via `getJobSampleRow`, mirroring `render_sms`) + unmatched-placeholder warning.
 
 ### AskVolleyChat — `components/AskVolleyChat.tsx`
 The shared **Ask Volley** chat panel for the template/email/SMS composers — presentational + controlled (the parent owns messages/input/persistence + what each turn does). User bubbles green-800, assistant white, a `system` role renders the spinner line; amber notice bar with a Clear button. Exports `ChatMsg` + `msgId`.

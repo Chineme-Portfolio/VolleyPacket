@@ -89,6 +89,12 @@ export default function EmailComposer({ jobId, columns, initialSubject, initialB
   }, [expanded, chatLoaded, loadChat]);
 
   const dirty = subject !== savedSubject || body !== savedBody;
+  // {tokens} in the subject/body that don't match any spreadsheet column → would send literally.
+  const unmatched = Array.from(
+    new Set(
+      [...(subject.match(/\{[^{}]+\}/g) || []), ...(body.match(/\{[^{}]+\}/g) || [])].map((t) => t.slice(1, -1))
+    )
+  ).filter((t) => !columns.includes(t));
 
   async function handleSave() {
     setSaving(true);
@@ -245,6 +251,14 @@ export default function EmailComposer({ jobId, columns, initialSubject, initialB
                   </button>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Unmatched placeholder warning (subject + body) */}
+          {activeTab !== "askvolley" && unmatched.length > 0 && (
+            <div className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+              These placeholders don&apos;t match a spreadsheet column and will send literally:{" "}
+              <span className="font-mono">{unmatched.map((u) => `{${u}}`).join(", ")}</span>
             </div>
           )}
 
