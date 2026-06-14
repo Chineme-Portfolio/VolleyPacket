@@ -1,5 +1,7 @@
 "use client";
 
+import { useAutoResize } from "@/lib/useAutoResize";
+
 export interface ChatMsg {
   id: string;
   role: "user" | "assistant" | "system";
@@ -37,6 +39,8 @@ export default function AskVolleyChat({
   notice,
   className,
 }: AskVolleyChatProps) {
+  const taRef = useAutoResize(input);
+
   return (
     <div className={`flex flex-col border border-gray-100 rounded-xl overflow-hidden ${className || "h-[420px]"}`}>
       <div className="flex items-center justify-between px-4 py-1.5 bg-amber-50 border-b border-amber-100">
@@ -72,14 +76,20 @@ export default function AskVolleyChat({
       </div>
 
       <div className="px-4 py-3 border-t border-gray-100 bg-white">
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
+        <div className="flex items-end gap-2">
+          <textarea
+            ref={taRef}
+            rows={1}
             value={input}
             onChange={(e) => onInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && onSend()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                onSend();
+              }
+            }}
             placeholder={placeholder || "Ask Volley to draft or change this…"}
-            className="flex-1 bg-gray-100 rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 outline-none focus:ring-2 focus:ring-green-700/20 transition-shadow"
+            className="flex-1 bg-gray-100 rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 outline-none focus:ring-2 focus:ring-green-700/20 transition-shadow resize-none overflow-y-auto leading-relaxed"
             disabled={generating}
           />
           <button

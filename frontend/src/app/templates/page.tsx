@@ -14,6 +14,7 @@ import {
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { friendlyError } from "@/lib/errors";
+import { useAutoResize } from "@/lib/useAutoResize";
 
 interface ChatMessage {
   id: string;
@@ -73,6 +74,7 @@ export default function TemplatesPage() {
   // AI builder state
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadChatFromStorage());
   const [input, setInput] = useState("");
+  const promptRef = useAutoResize(input);
   const [generating, setGenerating] = useState(false);
   const [uploadedDocs, setUploadedDocs] = useState<UploadedFile[]>([]);
   const [generatedTemplate, setGeneratedTemplate] = useState<Record<string, unknown> | null>(null);
@@ -441,7 +443,7 @@ export default function TemplatesPage() {
 
         {/* Input area */}
         <div className="px-6 py-4 border-t border-gray-100 bg-white">
-          <div className="flex items-center gap-3">
+          <div className="flex items-end gap-3">
             <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".pdf,.doc,.docx,.html,.htm,.txt,.png,.jpg,.jpeg,.webp" className="hidden" />
             <button
               onClick={() => fileInputRef.current?.click()}
@@ -452,13 +454,19 @@ export default function TemplatesPage() {
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
               </svg>
             </button>
-            <input
-              type="text"
+            <textarea
+              ref={promptRef}
+              rows={1}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
               placeholder={uploadedDocs.length > 0 ? "Add instructions for the template..." : "Describe your template..."}
-              className="flex-1 bg-gray-100 rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 outline-none focus:ring-2 focus:ring-green-700/20 transition-shadow"
+              className="flex-1 bg-gray-100 rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 outline-none focus:ring-2 focus:ring-green-700/20 transition-shadow resize-none overflow-y-auto leading-relaxed"
               disabled={generating}
             />
             <button
