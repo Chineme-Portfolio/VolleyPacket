@@ -1,4 +1,5 @@
 import os
+import csv
 import logging
 import zipfile
 import threading
@@ -26,58 +27,80 @@ def run_pdf_generation(job: Job):
         existing_files = set(os.listdir(pdf_folder))
         logger.info(f"[pdf_gen] Job {job.job_id}: entering loop — {len(data)} rows, {len(existing_files)} existing PDFs in folder")
 
+        os.makedirs(config.LOG_FOLDER, exist_ok=True)
+        log_path = os.path.join(config.LOG_FOLDER, f"pdf_run_{job.timestamp}.csv")
+
         skipped = 0
-        for idx, (_, row) in enumerate(data.iterrows()):
-            if job.should_stop("pdfs"):
-                logger.info(f"[pdf_gen] Job {job.job_id}: stop signal at row {idx}")
-                task.status = "cancelled"
-                task.phase = "cancelled"
-                job.update_status_from_tasks()
-                job.save()
-                return
+        with open(log_path, "w", newline="", encoding="utf-8") as log_file:
+            writer = csv.DictWriter(log_file, fieldnames=["Identifier", "PDFGenerated", "Error"])
+            writer.writeheader()
+            log_file.flush()
 
-            row_dict = row.to_dict()
+            for idx, (_, row) in enumerate(data.iterrows()):
+                if job.should_stop("pdfs"):
+                    logger.info(f"[pdf_gen] Job {job.job_id}: stop signal at row {idx}")
+                    task.status = "cancelled"
+                    task.phase = "cancelled"
+                    job.update_status_from_tasks()
+                    job.save()
+                    return
 
-            # Use first available identifier column for filename, fallback to index
-            file_id = None
-            for col in ["Name", "ExamNo", "Email", "ID", "Id", "id"]:
-                if col in row_dict and row_dict[col]:
-                    file_id = str(row_dict[col])
-                    break
-            if not file_id:
-                file_id = f"recipient_{idx + 1}"
-            pdf_filename = f"{safe_filename(file_id)}.pdf"
-            output_path = os.path.join(pdf_folder, pdf_filename)
+                row_dict = row.to_dict()
 
-            # Skip if PDF already exists (restored from S3/ZIP or previous partial run)
-            if pdf_filename in existing_files:
-                skipped += 1
-            else:
-                # Check for photo URL in any photo-related column
-                photo_path = None
-                for col in ["PhotoLink", "PhotoURL", "Photo", "photo_url", "photo"]:
-                    photo_url = row_dict.get(col, "")
-                    if photo_url and str(photo_url).startswith("http"):
-                        photo_path = download_photo(str(photo_url), temp_folder)
+                # Use first available identifier column for filename, fallback to index
+                file_id = None
+                for col in ["Name", "ExamNo", "Email", "ID", "Id", "id"]:
+                    if col in row_dict and row_dict[col]:
+                        file_id = str(row_dict[col])
                         break
+                if not file_id:
+                    file_id = f"recipient_{idx + 1}"
+                pdf_filename = f"{safe_filename(file_id)}.pdf"
+                output_path = os.path.join(pdf_folder, pdf_filename)
 
-                render_pdf(job.template, row_dict, output_path, photo_path=photo_path)
+                generated = False
+                error = ""
+                try:
+                    # Skip if PDF already exists (restored from S3/ZIP or previous partial run)
+                    if pdf_filename in existing_files:
+                        skipped += 1
+                        generated = True
+                    else:
+                        # Check for photo URL in any photo-related column
+                        photo_path = None
+                        for col in ["PhotoLink", "PhotoURL", "Photo", "photo_url", "photo"]:
+                            photo_url = row_dict.get(col, "")
+                            if photo_url and str(photo_url).startswith("http"):
+                                photo_path = download_photo(str(photo_url), temp_folder)
+                                break
 
-                # Upload individual PDF to S3 so email task can find it after redeploy
-                store.save_local_file(output_path)
+                        render_pdf(job.template, row_dict, output_path, photo_path=photo_path)
 
-                if photo_path and os.path.exists(photo_path):
-                    os.remove(photo_path)
+                        # Upload individual PDF to S3 so email task can find it after redeploy
+                        store.save_local_file(output_path)
 
-                if not job.paused.get("pdfs", False):
-                    task.phase = "generating"
+                        if photo_path and os.path.exists(photo_path):
+                            os.remove(photo_path)
 
-            # Progress tracking runs for BOTH skipped and rendered PDFs
-            task.pdfs_generated = idx + 1
-            task.progress = idx + 1
+                        generated = True
+                        if not job.paused.get("pdfs", False):
+                            task.phase = "generating"
+                except Exception as e:
+                    # Per-row resilience: log the failure and keep going (don't abort the batch).
+                    error = str(e)
+                    logger.warning(f"[pdf_gen] Job {job.job_id}: row {idx} ({file_id}) failed — {e}")
 
-            if (idx + 1) % 10 == 0 or (idx + 1) == len(data):
-                job.save()
+                writer.writerow({"Identifier": file_id, "PDFGenerated": generated, "Error": error})
+                log_file.flush()
+
+                # Progress tracking runs for BOTH skipped and rendered PDFs
+                task.pdfs_generated = idx + 1
+                task.progress = idx + 1
+
+                if (idx + 1) % 10 == 0 or (idx + 1) == len(data):
+                    job.save()
+
+        store.save_local_file(log_path)
 
         if skipped:
             logger.info(f"[pdf_gen] Job {job.job_id}: skipped {skipped} already-existing PDFs")

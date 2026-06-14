@@ -8,9 +8,9 @@ Update this file after every working session. Any agent reading this should imme
 
 **Branch:** `v2.0` (default branch for PRs: `main`)
 **Phase:** B — Stabilization (see `roadmap.md`)
-**Current focus:** Phase C — **SMS is now multi-provider + multi-country** (Feature 3): pluggable BulkSMS/Twilio/Vonage/Termii/Africa's Talking with per-user encrypted settings + E.164. Open from Phase B: **testing the Paystack route end-to-end** (checkout → webhook → tier change).
-**Last completed:** Feature 3 — pluggable SMS providers, `sms_settings` + `/sms-settings` + a Settings → SMS page, multi-country E.164 via `phonenumbers`, `sms_tasks` refactored to the provider interface (this session).
-**Next:** Live-verify SMS (configure BulkSMS in Settings → SMS, send a job; other providers when creds are available) → the unified AI seam → Paystack route test.
+**Current focus:** Stabilization audit — **delivery report + log downloads** fixed and upgraded (multi-channel, accurate, streamed). Open from Phase B: **testing the Paystack route end-to-end** (checkout → webhook → tier change).
+**Last completed:** Report/log audit — fixed the "successful sends in the failure sheet" bug + the gibberish downloads; report now covers email/SMS/PDF/photos, available once any task completes (this session).
+**Next:** Live-verify the report + log downloads on a real backend → live-verify SMS providers (Feature 3) → the unified AI seam → Paystack route test.
 
 ---
 
@@ -92,6 +92,13 @@ The load-bearing decisions and the reasoning — do not re-litigate these withou
 ## Session Notes
 
 > Append a dated entry per session: what was done, how it was verified, gotchas discovered.
+
+### 2026-06-13 — Audit fix: delivery report + log downloads
+- **Report "successful sends in failure sheet" bug** (failure-modes [14]): `generate_report` read the email log only via `job.log_path`, which `from_db_row` resets to `None` — so on every (fresh-loaded) report download the log was never read and all candidates fell into "Not Sent". Rewrote `report_tasks.py` to read each task's log by deterministic key from `job.timestamp`; the report is now **log-driven** (Summary + one sheet per channel), so it can't re-derive status wrong.
+- **Gibberish downloads** (failure-modes [15]): `store.serve` redirects to an S3 presigned URL when the file isn't local (post-redeploy/other worker), and the authenticated browser fetch could save a garbled body. Logs + report now **stream** via `ensure_local` → `FileResponse` (`text/csv; charset=utf-8`), never a redirect. (Big ZIPs keep presigned.)
+- **Multi-channel report**: now covers Email/SMS/PDF/Photos + Invalid Emails; **available once ANY task completes** (was emails-only), regenerated per download so it reflects the latest. Added a **per-row PDF log** (`pdf_run_*.csv`) and made PDF generation **continue-on-error** (one bad row no longer aborts the batch); added `pdfs` to `LOG_TYPES` so the PDF log is viewable/downloadable.
+- Files: `report_tasks.py` (rewrite), `pdf_tasks.py` (log + resilience), `routes/jobs.py` (gate→any-task, stream downloads, LOG_TYPES), `jobs/[id]/page.tsx` (report shows when any task complete).
+- **Verified**: report unit test (sent=success with `log_path=None`; Email 2/1, SMS 1/0, PDFs 1/1; multi-channel sheets); py_compile; tsc + next build. **Not yet**: live download on prod (S3) to confirm the gibberish fix end-to-end.
 
 ### 2026-06-13 — Feature 3: pluggable SMS providers + multi-country
 - **SMS now mirrors email's provider system.** New `app/services/sms_providers/` (`SmsProvider` ABC + `SmsMessage{to,body,sender_id}`) with 5 REST adapters — BulkSMS, Twilio, Vonage, Termii, Africa's Talking — + `create_sms_provider` factory + `PROVIDER_FIELDS`.

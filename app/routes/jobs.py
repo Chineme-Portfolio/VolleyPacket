@@ -1023,9 +1023,10 @@ def download_photos_zip(job_id: str, user: UserRow = Depends(get_current_user)):
 def get_report(job_id: str, user: UserRow = Depends(get_current_user)):
     job = _get_job_or_404(job_id, user)
 
-    email_task = job.tasks["emails"]
-    if email_task.status != "complete":
-        raise HTTPException(status_code=409, detail="Emails not sent yet — send emails first")
+    # Available once ANY task completes; regenerated on each download so it reflects
+    # whatever has finished so far.
+    if not any(t.status == "complete" for t in job.tasks.values()):
+        raise HTTPException(status_code=409, detail="Run at least one task (PDFs, emails, SMS, or photos) before downloading the report.")
 
     try:
         report_path = generate_report(job)
@@ -1033,10 +1034,10 @@ def get_report(job_id: str, user: UserRow = Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Report generation failed: {e}")
 
-    from app.services.storage import _key_from_local
-    report_key = _key_from_local(report_path)
-    return store.serve(
-        report_key,
+    # Stream the freshly-written local file directly — never a presigned redirect — so the
+    # downloaded bytes are always the real report.
+    return FileResponse(
+        report_path,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         filename=f"report_{job_id}.xlsx",
     )
@@ -1047,6 +1048,7 @@ def get_report(job_id: str, user: UserRow = Depends(get_current_user)):
 # named {prefix}_{job.timestamp}.csv (or .xlsx) to config.LOG_FOLDER.
 LOG_TYPES = {
     "emails": {"prefix": "run", "label": "Email Log"},
+    "pdfs": {"prefix": "pdf_run", "label": "PDF Log"},
     "sms": {"prefix": "sms_run", "label": "SMS Log"},
     "photos": {"prefix": "photo_download", "label": "Photo Download Log"},
     "invalid_emails": {"prefix": "invalid_emails", "label": "Invalid Emails"},
@@ -1160,9 +1162,12 @@ def download_job_log(
 
     ext = os.path.splitext(storage_key)[1]
     media_type = (
-        "text/csv" if ext == ".csv"
+        "text/csv; charset=utf-8" if ext == ".csv"
         else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
     filename = f"{meta['label'].lower().replace(' ', '_')}_{job_id}{ext}"
 
-    return store.serve(storage_key, media_type=media_type, filename=filename)
+    # Stream the file (downloading from storage if needed) instead of a presigned redirect,
+    # so the downloaded bytes are always the real file (fixes the "gibberish download").
+    local_path = store.ensure_local(storage_key)
+    return FileResponse(local_path, media_type=media_type, filename=filename)

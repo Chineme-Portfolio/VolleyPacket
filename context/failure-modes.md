@@ -22,6 +22,8 @@ The diagnostic backbone of this project. VolleyPacket's hard bugs are not random
 | PDF generation crashes instantly in prod but works locally | [11] Missing WeasyPrint system libs |
 | Task won't start, or starts already-paused | [12] Stale control flags at start |
 | AI rejects an uploaded image | [13] Media-type mismatch |
+| Feature empty/wrong when opened later but fine during the run | [14] Runtime-only attribute lost after DB load |
+| Downloaded log/report is garbled binary ("gibberish"), esp. after redeploy | [15] Corrupt download via presigned redirect |
 
 ---
 
@@ -126,6 +128,22 @@ The diagnostic backbone of this project. VolleyPacket's hard bugs are not random
 - **Root cause:** files lie — a `.png` that's really a JPEG. Claude validates the declared media type against the actual bytes.
 - **Defense:** detect media type from **magic bytes**, verify base64 content matches before sending (commits `4ea9dbc`, `4262218`).
 - **Invariant:** never trust file extensions for media types.
+
+## [14] Runtime-only attribute lost after DB load
+
+- **Symptoms:** a feature that reads `job.<attr>` works during the live run but produces empty/wrong output when triggered later (e.g. the delivery report dumped every successful send into "Not Sent").
+- **Root cause:** the report read the email log only via `job.log_path`, but `log_path` is a runtime-only attribute set to `None` in `from_db_row` — and every report download loads a fresh Job from the DB. So the log was never read; `sent_emails` stayed empty; all candidates fell into "Not Sent".
+- **Defense:** `generate_report` reconstructs log keys from the persisted `job.timestamp` (`logs/{prefix}_{timestamp}.csv`) and reads each task's log directly — never `job.log_path`. The report is now log-driven (the logs are the record of what happened), so it can't re-derive status incorrectly.
+- **Invariant:** anything needed after a job is reloaded must come from a persisted column (or be reconstructable from one, like `timestamp`) — never a runtime-only attribute that `from_db_row` resets.
+- **Verify:** generate a report with `job.log_path = None` and only the per-task CSVs present → successful sends count as success.
+
+## [15] Corrupt ("gibberish") downloads via presigned redirect
+
+- **Symptoms:** a downloaded log/report is sometimes garbled binary; sharing it shares the garbage. Intermittent — typically after a redeploy or from the other worker.
+- **Root cause:** `store.serve()` returns a **redirect to an S3 presigned URL** when the file isn't on the current pod's local disk. The browser download (an authenticated `fetch` that follows the redirect) can save an error/garbled body instead of the file. "Sometimes" = only when not served from local disk.
+- **Defense:** for small text/report files, **stream through the API** — `store.ensure_local(key)` then `FileResponse(...)` with `text/csv; charset=utf-8` — never a redirect (`download_job_log`, `get_report` in `app/routes/jobs.py`). Large ZIPs (PDF/photo bundles) keep the presigned path deliberately.
+- **Invariant:** logs and reports are streamed with an explicit content-type + charset, never served via redirect.
+- **Verify:** download a log when the file isn't local (force `ensure_local` to fetch from storage) → bytes match the original CSV exactly.
 
 ---
 

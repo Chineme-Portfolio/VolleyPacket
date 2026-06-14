@@ -174,7 +174,7 @@ export default function JobDetailPage() {
 
   const isTerminal = job.status === "cancelled" || job.status === "failed";
   const jobMode = job.job_mode || "dynamic_pdf";
-  const emailsComplete = job.tasks?.emails?.status === "complete";
+  const anyTaskComplete = Object.values(job.tasks || {}).some((t) => t.status === "complete");
   const hasRunning = Object.values(job.tasks || {}).some((t) => t.status === "running");
 
   return (
@@ -367,7 +367,7 @@ export default function JobDetailPage() {
       </div>
 
       {/* Report section */}
-      {emailsComplete && (
+      {anyTaskComplete && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -380,7 +380,7 @@ export default function JobDetailPage() {
               </div>
               <div>
                 <h3 className="text-sm font-semibold text-gray-900">Delivery Report</h3>
-                <p className="text-xs text-gray-500">Excel report with sent, missing, bad emails, and failed rows</p>
+                <p className="text-xs text-gray-500">Excel report covering PDFs, emails, SMS &amp; photos — successes, failures, and invalid rows. Updates as tasks finish.</p>
               </div>
             </div>
             <button

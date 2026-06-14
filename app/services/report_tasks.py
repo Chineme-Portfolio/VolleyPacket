@@ -1,98 +1,87 @@
 import os
-import re
 
 import pandas as pd
 
 from app.services.jobs import Job
-from app.services.storage import store, _key_from_local
+from app.services.storage import store
 from app import config
 
 
-EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+# Per-channel report config: (sheet name, log file prefix, success column in that log).
+# The per-task logs are the source of truth — the report just presents them, so it
+# stays accurate and automatically covers whatever tasks have completed.
+_CHANNELS = [
+    ("Email", "run", "EmailSent"),
+    ("SMS", "sms_run", "Sent"),
+    ("PDFs", "pdf_run", "PDFGenerated"),
+    ("Photos", "photo_download", "Downloaded"),
+]
+
+_TRUTHY = {"true", "1", "yes", "y"}
+
+
+def _read_csv_log(timestamp: str, prefix: str):
+    """Read a task log CSV by its deterministic storage key; None if absent/unreadable."""
+    key = f"logs/{prefix}_{timestamp}.csv"
+    if not store.exists(key):
+        return None
+    try:
+        return pd.read_csv(store.ensure_local(key)).fillna("")
+    except Exception:
+        return None
+
+
+def _is_success(value) -> bool:
+    return str(value).strip().lower() in _TRUTHY
 
 
 def generate_report(job: Job) -> str:
-    """
-    Generate a delivery report using our own email send log.
-    No external service logs needed — we track everything ourselves.
-    """
-    # Source 1: All candidates from the job
-    candidates = job.data.copy()
-    candidates = candidates.fillna("")
-    candidates["_email_key"] = candidates["Email"].astype(str).str.strip().str.lower()
+    """Build a multi-channel delivery report (Summary + one sheet per channel) from each
+    task's per-row log. Reads logs by `job.timestamp` (NOT `job.log_path`, which is None
+    after a DB load — the old bug that dumped every successful send into 'Not Sent')."""
+    summary_rows = []
+    sheets = []  # list of (sheet_name, DataFrame)
 
-    # Source 2: Our own run log (written by email_tasks.py)
-    run_log = pd.DataFrame()
-    if job.log_path:
-        log_key = _key_from_local(job.log_path)
-        if store.exists(log_key):
-            local_log = store.ensure_local(log_key)
-            run_log = pd.read_csv(local_log)
-        run_log = run_log.fillna("")
-        run_log["_email_key"] = run_log["Email"].astype(str).str.strip().str.lower()
+    for sheet_name, prefix, status_col in _CHANNELS:
+        df = _read_csv_log(job.timestamp, prefix)
+        if df is None:
+            continue
+        attempted = len(df)
+        successful = int(df[status_col].apply(_is_success).sum()) if status_col in df.columns else 0
+        summary_rows.append({
+            "Channel": sheet_name,
+            "Attempted": attempted,
+            "Successful": successful,
+            "Failed": attempted - successful,
+        })
+        sheets.append((sheet_name, df))
 
-    # Build delivery status from our log
-    sent_emails = set()
-    failed_emails = set()
-    error_map = {}
+    # Invalid emails filtered out before sending (written as .xlsx by validate_emails).
+    invalid_key = f"logs/invalid_emails_{job.timestamp}.xlsx"
+    if store.exists(invalid_key):
+        try:
+            invalid_df = pd.read_excel(store.ensure_local(invalid_key)).fillna("")
+            if not invalid_df.empty:
+                summary_rows.append({
+                    "Channel": "Invalid Emails",
+                    "Attempted": len(invalid_df),
+                    "Successful": 0,
+                    "Failed": len(invalid_df),
+                })
+                sheets.append(("Invalid Emails", invalid_df))
+        except Exception:
+            pass
 
-    if not run_log.empty:
-        for _, row in run_log.iterrows():
-            key = row["_email_key"]
-            email_sent = str(row.get("EmailSent", "")).strip().lower() == "true"
-            if email_sent:
-                sent_emails.add(key)
-            else:
-                failed_emails.add(key)
-                error_msg = str(row.get("Error", ""))
-                if error_msg:
-                    error_map[key] = error_msg
+    summary_df = pd.DataFrame(
+        summary_rows or [{"Channel": "(no completed tasks yet)", "Attempted": 0, "Successful": 0, "Failed": 0}],
+        columns=["Channel", "Attempted", "Successful", "Failed"],
+    )
 
-    # Sheet 1: Successfully Sent
-    sent = candidates[candidates["_email_key"].isin(sent_emails)].copy()
-
-    # Sheet 2: Not Sent (in candidate list but not successfully sent)
-    not_sent = candidates[~candidates["_email_key"].isin(sent_emails)].copy()
-
-    # Sheet 3: Bad Emails (invalid format)
-    is_bad = ~candidates["_email_key"].apply(lambda e: bool(EMAIL_RE.match(e)))
-    bad_emails = candidates[is_bad].copy()
-    bad_emails["Reason"] = "Invalid email format"
-
-    # Sheet 4: Failed (attempted but errored)
-    failed_df = candidates[candidates["_email_key"].isin(failed_emails)].copy()
-    if not failed_df.empty:
-        failed_df["Error"] = failed_df["_email_key"].map(error_map).fillna("")
-
-    # Summary stats
-    total = len(candidates)
-    sent_count = len(sent)
-    failed_count = len(failed_df)
-    bad_count = len(bad_emails)
-    not_attempted = total - sent_count - failed_count
-
-    summary_data = {
-        "Metric": [
-            "Total Candidates",
-            "Emails Sent Successfully",
-            "Emails Failed",
-            "Invalid Email Addresses",
-            "Not Attempted",
-        ],
-        "Count": [total, sent_count, failed_count, bad_count, not_attempted],
-    }
-    summary_df = pd.DataFrame(summary_data)
-
-    # Write report
-    drop_key = lambda df: df.drop(columns=["_email_key"], errors="ignore")
     os.makedirs(config.LOG_FOLDER, exist_ok=True)
     report_path = os.path.join(config.LOG_FOLDER, f"report_{job.job_id}.xlsx")
-
     with pd.ExcelWriter(report_path, engine="openpyxl") as writer:
         summary_df.to_excel(writer, sheet_name="Summary", index=False)
-        drop_key(sent).to_excel(writer, sheet_name="Sent", index=False)
-        drop_key(not_sent).to_excel(writer, sheet_name="Not Sent", index=False)
-        drop_key(bad_emails).to_excel(writer, sheet_name="Bad Emails", index=False)
-        drop_key(failed_df).to_excel(writer, sheet_name="Failed", index=False)
+        for sheet_name, df in sheets:
+            df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
 
     return report_path
