@@ -265,6 +265,31 @@ export default function JobDetailPage() {
         </div>
       )}
 
+      {/* Job mode selector */}
+      {!isTerminal && (
+        <div className="mb-6">
+          <JobModeSelector
+            currentMode={jobMode}
+            onModeChange={async (mode, file) => {
+              await setJobMode(jobId, mode, file);
+              await loadJob();
+            }}
+            disabled={hasRunning}
+          />
+        </div>
+      )}
+
+      {/* Column mapping (shows only when template has unmatched placeholders) */}
+      {!isTerminal && job.template_id && (
+        <div className="mb-6">
+          <ColumnMapper
+            jobId={jobId}
+            columns={job.columns}
+            onMapped={() => loadJob()}
+          />
+        </div>
+      )}
+
       {/* Template selector */}
       {!isTerminal && (
         <div className="mb-6">
@@ -286,31 +311,6 @@ export default function JobDetailPage() {
             templateId={job.template_id}
             disabled={hasRunning}
             onChanged={() => loadJob()}
-          />
-        </div>
-      )}
-
-      {/* Column mapping (shows only when template has unmatched placeholders) */}
-      {!isTerminal && job.template_id && (
-        <div className="mb-6">
-          <ColumnMapper
-            jobId={jobId}
-            columns={job.columns}
-            onMapped={() => loadJob()}
-          />
-        </div>
-      )}
-
-      {/* Job mode selector */}
-      {!isTerminal && (
-        <div className="mb-6">
-          <JobModeSelector
-            currentMode={jobMode}
-            onModeChange={async (mode, file) => {
-              await setJobMode(jobId, mode, file);
-              await loadJob();
-            }}
-            disabled={hasRunning}
           />
         </div>
       )}

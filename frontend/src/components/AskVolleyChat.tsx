@@ -1,7 +1,5 @@
 "use client";
 
-import { useRef, useEffect } from "react";
-
 export interface ChatMsg {
   id: string;
   role: "user" | "assistant" | "system";
@@ -39,11 +37,6 @@ export default function AskVolleyChat({
   notice,
   className,
 }: AskVolleyChatProps) {
-  const endRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
   return (
     <div className={`flex flex-col border border-gray-100 rounded-xl overflow-hidden ${className || "h-[420px]"}`}>
       <div className="flex items-center justify-between px-4 py-1.5 bg-amber-50 border-b border-amber-100">
@@ -76,7 +69,6 @@ export default function AskVolleyChat({
             )}
           </div>
         ))}
-        <div ref={endRef} />
       </div>
 
       <div className="px-4 py-3 border-t border-gray-100 bg-white">

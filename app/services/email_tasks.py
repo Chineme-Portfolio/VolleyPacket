@@ -12,17 +12,6 @@ from app import config
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_EMAIL_BODY = """<html>
-<body style="font-family: Arial, sans-serif; color: #2C2C2C; line-height: 1.6;">
-  <p>Dear {Name},</p>
-  <p>Please find your document attached to this email.</p>
-  <p>If you have any questions, please do not hesitate to reach out.</p>
-  <p>Best regards,<br>
-  <strong>{sender_name}</strong></p>
-</body>
-</html>"""
-
-
 def _render_body(template_html: str, row_dict: dict, sender_name: str, sender_title: str) -> str:
     """Replace placeholders in the email body with row values and sender info."""
     body = template_html
@@ -56,7 +45,9 @@ def run_email_send(job: Job, provider: EmailProvider, from_name: str, from_email
 
         # Email content — use job's custom content or defaults
         email_subject_tpl = getattr(job, "email_subject", "") or "Message for {Name}"
-        email_body_tpl = getattr(job, "email_body", "") or DEFAULT_EMAIL_BODY
+        # Use the job's email content verbatim — never a hardcoded generic message.
+        # The /emails/send route guarantees this is non-empty before the task starts.
+        email_body_tpl = job.email_body or ""
 
         # Sender info for template (signature field is optional)
         sig_name = from_name

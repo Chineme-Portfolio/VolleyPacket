@@ -879,6 +879,10 @@ def send_emails(job_id: str, user: UserRow = Depends(get_current_user)):
             raise HTTPException(status_code=400, detail="No template/email config attached")
     # email_only: no extra checks
 
+    # Email body must be set — we never silently send a generic fallback message.
+    if not (job.email_body or "").strip():
+        raise HTTPException(status_code=400, detail="Set email content before sending emails.")
+
     if job.tasks["emails"].status == "running":
         raise HTTPException(status_code=409, detail="Email send already running")
 
