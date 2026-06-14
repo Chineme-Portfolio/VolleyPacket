@@ -17,13 +17,14 @@ from app.services.read_data import load_data
 from app.services.pdf_tasks import start_pdf_generation
 from app.services.email_tasks import start_email_send
 from app.services.sms_tasks import start_sms_send
+from app.services.sms_providers import create_sms_provider
 from app.services.photo_tasks import start_photo_download
 from app.services.report_tasks import generate_report
 from app.services.storage import store
 from app.services.ai_generator import edit_template_with_ai, extract_placeholders, draft_email_with_ai, draft_sms_with_ai
 from app.services.template_renderer import fill_placeholders, render_html_preview, add_preview_page_margins
 from app.dependencies import get_current_user
-from app.database import UserRow, EmailSettingsRow, get_session
+from app.database import UserRow, EmailSettingsRow, SMSSettingsRow, get_session
 from app.services.encryption import decrypt_credentials
 from app.services.email_providers import create_provider
 from app.services.billing import (
@@ -942,11 +943,32 @@ def send_sms(job_id: str, user: UserRow = Depends(get_current_user)):
             detail="No recipient data loaded. The data file may have been lost after a deploy. Please re-upload the spreadsheet.",
         )
 
+    # Resolve the SMS provider: per-user settings win; fall back to the global BulkSMS env
+    # (transition) so existing Nigeria sending keeps working until a provider is configured.
+    s = get_session()
+    try:
+        sms_settings = s.get(SMSSettingsRow, user.id)
+    finally:
+        s.close()
+
+    if sms_settings:
+        provider = create_sms_provider(
+            sms_settings.provider_name, decrypt_credentials(sms_settings.credentials_encrypted)
+        )
+        sender_id = sms_settings.sender_id
+        default_region = sms_settings.default_region or "NG"
+    elif config.BULKSMS_API_TOKEN:
+        provider = create_sms_provider("bulksms", {"api_token": config.BULKSMS_API_TOKEN})
+        sender_id = config.SMS_DEFAULT_SENDER
+        default_region = "NG"
+    else:
+        raise HTTPException(status_code=400, detail="No SMS provider configured. Set one up in Settings → SMS.")
+
     # Clear stop flag before (re)start
     job.stop_flags["sms"] = False
     job._clear_stop_flag("sms")
 
-    start_sms_send(job)
+    start_sms_send(job, provider, sender_id, default_region)
     return {"message": "SMS send started", "total": job.tasks["sms"].total}
 
 

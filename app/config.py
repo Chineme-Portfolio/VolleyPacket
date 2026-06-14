@@ -55,6 +55,8 @@ PAYSTACK_WEBHOOK_SECRET = os.getenv("PAYSTACK_WEBHOOK_SECRET")
 PAYSTACK_PLAN_CLASSIC = os.getenv("PAYSTACK_PLAN_CLASSIC", "")  # Paystack plan_code for Classic
 PAYSTACK_PLAN_PRO = os.getenv("PAYSTACK_PLAN_PRO", "")          # Paystack plan_code for Pro
 
-# BulkSMS (Nigeria-focused SMS provider)
+# BulkSMS (Nigeria-focused SMS provider) — global env is the transition fallback when a
+# user hasn't configured per-user SMS settings; a configured provider always wins.
 BULKSMS_API_TOKEN = os.getenv("BULKSMS_API_TOKEN", "")
 BULKSMS_API_URL = os.getenv("BULKSMS_API_URL", "https://www.bulksmsnigeria.com/api/v2/sms")
+SMS_DEFAULT_SENDER = os.getenv("SMS_DEFAULT_SENDER", "Osalasi")  # sender_id for the env fallback

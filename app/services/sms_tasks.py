@@ -1,35 +1,15 @@
 import os
-import re
 import csv
 import logging
 import threading
 
-import pandas as pd
-import requests
-
 from app.services.jobs import Job
 from app.services.storage import store
+from app.services.sms_providers import SmsMessage, to_e164
+from app.services.sms_providers.base import SmsProvider
 from app import config
 
 logger = logging.getLogger(__name__)
-
-
-def normalize_phone(raw):
-    if pd.isna(raw):
-        return []
-    parts = re.split(r'[,/;]', str(raw))
-    normalized = []
-    for part in parts:
-        phone = part.strip().replace(" ", "").replace("-", "").replace("+", "")
-        if not phone.isdigit():
-            continue
-        if len(phone) == 11 and phone.startswith("0"):
-            normalized.append("234" + phone[1:])
-        elif len(phone) == 13 and phone.startswith("234"):
-            normalized.append(phone)
-        elif len(phone) == 10 and phone.startswith(("7", "8", "9")):
-            normalized.append("234" + phone)
-    return list(dict.fromkeys(normalized))
 
 
 def render_sms(template: str, row: dict) -> str:
@@ -40,36 +20,14 @@ def render_sms(template: str, row: dict) -> str:
     return message
 
 
-def send_one_sms(phone, message):
-    headers = {
-        "Authorization": f"Bearer {config.BULKSMS_API_TOKEN}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
-    payload = {"from": "Osalasi", "to": phone, "body": message}
-    try:
-        resp = requests.post(config.BULKSMS_API_URL, json=payload, headers=headers, timeout=30)
-        data = resp.json()
-        if data.get("status") == "success":
-            return True, ""
-        error = data.get("error", {}).get("message") or data.get("message", "Unknown error")
-        return False, f"{data.get('code', '')}: {error}"
-    except Exception as e:
-        return False, str(e)
-
-
-def run_sms_send(job: Job):
+def run_sms_send(job: Job, provider: SmsProvider, sender_id: str, default_region: str = "NG"):
     task = job.tasks["sms"]
 
     try:
-        if not config.BULKSMS_API_TOKEN:
-            raise ValueError("BULKSMS_API_TOKEN is not configured — set it in environment variables")
-
         data = job.data
-        logger.info(f"[sms_send] Job {job.job_id}: starting SMS send — {len(data)} recipients")
+        logger.info(f"[sms_send] Job {job.job_id}: starting SMS send via {provider.name} — {len(data)} recipients")
 
-        # Use the job's SMS content verbatim — never a hardcoded generic message.
-        # The /sms/send route guarantees this is non-empty before the task starts.
+        # Use the job's SMS content verbatim — the /sms/send route guarantees it's non-empty.
         sms_template = job.sms_body or ""
 
         os.makedirs(config.LOG_FOLDER, exist_ok=True)
@@ -94,7 +52,7 @@ def run_sms_send(job: Job):
                 name = str(row_dict.get("Name", ""))
                 exam_no = str(row_dict.get("ExamNo", ""))
                 raw_phone = row_dict.get("PhoneNumber", "")
-                numbers = normalize_phone(raw_phone)
+                numbers = to_e164(raw_phone, default_region)  # multi-country → canonical E.164
 
                 if not numbers:
                     writer.writerow({
@@ -110,7 +68,11 @@ def run_sms_send(job: Job):
                 message = render_sms(sms_template, row_dict)
 
                 for phone in numbers:
-                    success, error = send_one_sms(phone, message)
+                    try:
+                        provider.send(SmsMessage(to=phone, body=message, sender_id=sender_id))
+                        success, error = True, ""
+                    except Exception as e:
+                        success, error = False, str(e)
                     writer.writerow({
                         "Name": name, "PhoneNumber": raw_phone,
                         "NormalizedPhone": phone, "ExamNo": exam_no,
@@ -147,12 +109,14 @@ def run_sms_send(job: Job):
             logger.error(f"[sms_send] Job {job.job_id}: failed to save error state")
 
 
-def start_sms_send(job: Job):
+def start_sms_send(job: Job, provider: SmsProvider, sender_id: str, default_region: str = "NG"):
     from app.models import TaskStatus
     # Fresh TaskStatus resets all counters (supports restart)
     job.tasks["sms"] = TaskStatus(status="running", phase="sending", total=len(job.data))
     job.paused["sms"] = False  # clear stale pause from previous run
     job.status = "running"
     job.save()
-    thread = threading.Thread(target=run_sms_send, args=(job,), daemon=True)
+    thread = threading.Thread(
+        target=run_sms_send, args=(job, provider, sender_id, default_region), daemon=True
+    )
     thread.start()

@@ -67,7 +67,7 @@ Template-quality note (top tier alone is not enough): pair the top model with a 
 
 - [ ] Scheduled / deferred job runs (send at a chosen time)
 - [ ] Resend-failed-only action (retry just the failed rows from the report)
-- [ ] Additional SMS providers (beyond BulkSMS Nigeria) — see the SMS provider plan in `architecture.md`
+- [x] Additional SMS providers + multi-country (Feature 3) — BulkSMS, Twilio, Vonage, Termii, Africa's Talking via per-user encrypted `sms_settings`; E.164 normalization via `phonenumbers`
 - [ ] WhatsApp channel
 - [ ] Dashboard analytics beyond stat cards (sends over time, success rates)
 - [ ] Team/organization accounts (org-level tenancy + roles; would also enable SSO)

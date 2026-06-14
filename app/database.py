@@ -43,6 +43,17 @@ class EmailSettingsRow(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class SMSSettingsRow(Base):
+    __tablename__ = "sms_settings"
+
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    provider_name = Column(String, nullable=False)  # "bulksms", "twilio", "vonage", "termii", "africastalking"
+    credentials_encrypted = Column(Text, nullable=False)  # Fernet-encrypted JSON
+    sender_id = Column(String, nullable=False, default="")  # alphanumeric sender ID or sending number
+    default_region = Column(String, nullable=False, default="NG")  # ISO country for bare local numbers
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class SubscriptionRow(Base):
     __tablename__ = "subscriptions"
 

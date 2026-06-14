@@ -591,3 +591,14 @@ export interface EmailProviderStatus {
 export async function getEmailProviderStatus(): Promise<EmailProviderStatus> {
   return fetchJSON("/email-settings");
 }
+
+export interface SmsProviderStatus {
+  provider_name: string;
+  sender_id: string;
+  default_region: string;
+  is_configured: boolean;
+}
+
+export async function getSmsProviderStatus(): Promise<SmsProviderStatus> {
+  return fetchJSON("/sms-settings");
+}

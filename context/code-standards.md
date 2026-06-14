@@ -232,7 +232,7 @@ Non-negotiables: full-body try/except that persists `failed`; `should_stop()` ev
 
 Never add a package without checking: does the stdlib, pandas, or an existing dependency already do this?
 
-Approved backend (requirements.txt): fastapi, uvicorn/gunicorn, sqlalchemy, psycopg2-binary, pandas, numpy, openpyxl, weasyprint, pillow, anthropic, stripe, boto3, bcrypt, PyJWT, cryptography, email-validator, resend, requests, beautifulsoup4, PyPDF2, python-docx, python-multipart, python-dotenv, tqdm.
+Approved backend (requirements.txt): fastapi, uvicorn/gunicorn, sqlalchemy, psycopg2-binary, pandas, numpy, openpyxl, weasyprint, pillow, anthropic, stripe, boto3, bcrypt, PyJWT, cryptography, email-validator, resend, requests, beautifulsoup4, PyPDF2, python-docx, python-multipart, python-dotenv, tqdm, phonenumbers (E.164 phone parsing/validation for multi-country SMS).
 
 Approved frontend (package.json): next 16, react 19, framer-motion, tailwindcss v4 (+ @tailwindcss/postcss), typescript, eslint, @uiw/react-codemirror + @codemirror/lang-html (syntax-highlighted HTML editor for the in-job template editor's HTML tab — lazy-loaded via `next/dynamic`, kept off the initial bundle).
 

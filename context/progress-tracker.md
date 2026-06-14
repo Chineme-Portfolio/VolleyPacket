@@ -8,9 +8,9 @@ Update this file after every working session. Any agent reading this should imme
 
 **Branch:** `v2.0` (default branch for PRs: `main`)
 **Phase:** B — Stabilization (see `roadmap.md`)
-**Current focus:** Phase C **AI capabilities upgrade** — **"Ask Volley"** now spans template + email + SMS, with server-persisted per-job conversations. Open from Phase B: **testing the Paystack route end-to-end** (checkout → webhook → tier change).
-**Last completed:** Feature 2 — email/SMS accordion + rich-text/HTML/AI editors, server-persisted Ask Volley chats, the SMS default-override fix, and the "Ask Volley" rebrand (this session).
-**Next:** Live smoke test of email/SMS Ask Volley + the SMS fix on a real backend (needs WeasyPrint + `ANTHROPIC_API_KEY`) → the proper unified AI seam (absorb all four call sites + model tiering) → Paystack route test.
+**Current focus:** Phase C — **SMS is now multi-provider + multi-country** (Feature 3): pluggable BulkSMS/Twilio/Vonage/Termii/Africa's Talking with per-user encrypted settings + E.164. Open from Phase B: **testing the Paystack route end-to-end** (checkout → webhook → tier change).
+**Last completed:** Feature 3 — pluggable SMS providers, `sms_settings` + `/sms-settings` + a Settings → SMS page, multi-country E.164 via `phonenumbers`, `sms_tasks` refactored to the provider interface (this session).
+**Next:** Live-verify SMS (configure BulkSMS in Settings → SMS, send a job; other providers when creds are available) → the unified AI seam → Paystack route test.
 
 ---
 
@@ -92,6 +92,14 @@ The load-bearing decisions and the reasoning — do not re-litigate these withou
 ## Session Notes
 
 > Append a dated entry per session: what was done, how it was verified, gotchas discovered.
+
+### 2026-06-13 — Feature 3: pluggable SMS providers + multi-country
+- **SMS now mirrors email's provider system.** New `app/services/sms_providers/` (`SmsProvider` ABC + `SmsMessage{to,body,sender_id}`) with 5 REST adapters — BulkSMS, Twilio, Vonage, Termii, Africa's Talking — + `create_sms_provider` factory + `PROVIDER_FIELDS`.
+- **Multi-country**: new `phonenumbers` dep; `to_e164(raw, default_region)` parses any number to canonical E.164 (NG local / bare-234 / +E.164 / US / UK …); each provider keeps or strips the `+` for its API. Replaces the Nigeria-only `normalize_phone`.
+- **Per-user config**: new `sms_settings` table (`provider_name`, `credentials_encrypted`, `sender_id`, `default_region`) + `/sms-settings` routes (GET/POST/DELETE/test/providers) mirroring email; Fernet-encrypted creds. `sms_tasks` now depends only on `SmsProvider`; `/sms/send` loads the user's provider (env BulkSMS as transition fallback via `SMS_DEFAULT_SENDER`).
+- **Frontend**: `settings/sms/page.tsx` (5 providers + per-provider How-Tos + `sender_id` + default-country + test-to-number), Settings hub entry + `SmsIcon`, `getSmsProviderStatus` in `api.ts`.
+- **Docs**: architecture.md SMS flipped planned→implemented + `sms_settings` schema; roadmap item done; code-standards approved deps += `phonenumbers`.
+- **Verified**: py_compile; `to_e164` across NG/US/UK/bare/junk; factory builds all 5 + `validate_config`; `sms_settings` migration + encrypted round-trip; `tsc` + `next build` (incl. `/settings/sms`). **Not yet**: live sends per provider — BulkSMS verifiable with your token; the other four are best-effort from API docs until creds are available.
 
 ### 2026-06-13 — Feature 2: email/SMS expansion + "Ask Volley"
 - **"Ask Volley"** is now the brand for all AI drafting (template/email/SMS) — tab labels + chat copy.

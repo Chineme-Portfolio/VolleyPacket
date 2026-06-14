@@ -16,7 +16,7 @@ The structural contract for VolleyPacket. Where code lives, how the pieces talk 
 | PDF rendering | WeasyPrint | HTML → PDF (needs Pango system libs — see Dockerfile) |
 | AI | Anthropic Claude (`claude-sonnet-4-6`) | Template generation, email drafting |
 | Email | Resend / SendGrid / SMTP (pluggable providers) | Per-user configured delivery |
-| SMS | BulkSMS Nigeria — global env today; pluggable per-user providers *(planned — see Pluggable Providers)* | SMS channel |
+| SMS | Pluggable per-user providers: BulkSMS, Twilio, Vonage, Termii, Africa's Talking (REST); multi-country E.164 via `phonenumbers` | SMS channel |
 | Billing | Stripe (intl/USD) + Paystack (Nigeria/NGN) | Subscriptions |
 | Storage | boto3 S3 (Railway bucket) or local filesystem | Files: uploads, PDFs, zips, logs |
 | Auth | PyJWT (HS256) + bcrypt + Google OAuth | Sessions and identity |
@@ -240,8 +240,8 @@ Engine: `DATABASE_URL` env (Postgres; `postgres://` auto-rewritten to `postgresq
 ### `email_settings`
 One row per user. `provider_name` + `credentials_encrypted` (Fernet JSON) + `from_name`/`from_email`.
 
-### `sms_settings` *(planned — mirrors `email_settings`)*
-One row per user: `provider_name` + `credentials_encrypted` (Fernet JSON) + `sender_id` (alphanumeric sender ID or sending number — SMS's "from") + `updated_at`. **Not yet implemented**; today SMS auth comes from global env (`BULKSMS_*`). See **Pluggable Providers**.
+### `sms_settings` (mirrors `email_settings`)
+One row per user: `provider_name` + `credentials_encrypted` (Fernet JSON) + `sender_id` (alphanumeric sender ID or sending number — SMS's "from") + `default_region` (ISO country for bare local numbers, default `NG`) + `updated_at`. Implemented; a configured row wins over the global `BULKSMS_*` env (kept as a transition fallback). See **Pluggable Providers**.
 
 ### `subscriptions`
 Dual-provider: `payment_provider` ("stripe"/"paystack"), Stripe customer/subscription IDs, Paystack codes, `tier`, `status` (active/cancelled/past_due/trialing), period bounds, `cancel_at_period_end`.
@@ -271,11 +271,11 @@ app/services/email_providers/
 - UI: `frontend/src/app/settings/email/page.tsx`; typed calls in `lib/api.ts` (`getEmailProviderStatus`, save).
 - `email_tasks.py` calls `create_provider(...)` and uses the returned `EmailProvider` — it never imports a concrete provider or an SDK directly. Credentials are decrypted only at send time, never logged.
 
-### SMS — planned (mirror email exactly)
+### SMS — implemented (mirrors email)
 
-> **Status: not yet implemented.** Today `sms_tasks.py` talks to BulkSMS directly using global env vars (`BULKSMS_API_TOKEN` / `BULKSMS_API_URL`). The target below makes SMS a per-user, multi-provider, encrypted-credential system identical in shape to email. **Implement it by copying the email structure — do not invent a new mechanism.**
+> **Status: implemented (Feature 3).** `sms_providers/` mirrors `email_providers/` with five REST adapters — **BulkSMS, Twilio, Vonage, Termii, Africa's Talking** — chosen per-user from the encrypted `sms_settings` row. `sms_tasks.py` depends only on the `SmsProvider` interface. Recipient numbers are normalized to E.164 via `phonenumbers` (`to_e164(raw, default_region)`) for multi-country, then each provider formats for its API (keep/strip the `+`). The global `BULKSMS_*` env remains as a transition fallback — a configured provider always wins. The structure below is the shipped design.
 
-Target structure:
+Structure:
 
 ```
 app/services/sms_providers/
@@ -390,7 +390,7 @@ Region routing: `region == "NG"` → Paystack/NGN, else Stripe/USD. Webhooks: `/
 | `DATABASE_URL` | database.py | present = Postgres; absent = SQLite |
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `STRIPE_PRICE_CLASSIC` / `STRIPE_PRICE_PRO` | billing | |
 | `PAYSTACK_SECRET_KEY` / `PAYSTACK_WEBHOOK_SECRET` / `PAYSTACK_PLAN_CLASSIC` / `PAYSTACK_PLAN_PRO` | paystack | |
-| `BULKSMS_API_TOKEN` / `BULKSMS_API_URL` | sms_tasks | fail-fast guard if missing when SMS starts. *Planned:* superseded by per-user encrypted `sms_settings`; kept only as an optional default during migration (see Pluggable Providers) |
+| `BULKSMS_API_TOKEN` / `BULKSMS_API_URL` / `SMS_DEFAULT_SENDER` | /sms/send fallback | transition fallback when a user has no `sms_settings` row; a configured provider always wins |
 | `FRONTEND_URL` | billing redirects | default http://localhost:3000 |
 | `CORS_ORIGINS` | main.py | comma-separated, required in prod |
 | `STORAGE_BACKEND` | storage.py | force "local"/"s3"; else auto-detect via `BUCKET` |
