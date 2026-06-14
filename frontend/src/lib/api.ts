@@ -536,6 +536,11 @@ export async function getJobAiChats(jobId: string): Promise<AiChats> {
   return fetchJSON(`/jobs/${jobId}/ai-chats`);
 }
 
+/** First data row as a dict — for live previews (e.g. filling SMS placeholders). */
+export async function getJobSampleRow(jobId: string): Promise<Record<string, string>> {
+  return fetchJSON(`/jobs/${jobId}/sample-row`);
+}
+
 /** Replace one channel's transcript (used for "Clear"). */
 export async function setJobAiChat(
   jobId: string,

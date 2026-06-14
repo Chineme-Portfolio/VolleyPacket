@@ -6,6 +6,7 @@ import {
   getJobAiChats,
   setJobAiChat,
   aiDraftSms,
+  getJobSampleRow,
   type JobTemplateChatMessage,
 } from "@/lib/api";
 import { friendlyError } from "@/lib/errors";
@@ -37,6 +38,14 @@ function toChatMsgs(transcript: JobTemplateChatMessage[] | undefined): ChatMsg[]
   return transcript.map((m) => ({ id: msgId(), role: m.role, text: m.content }));
 }
 
+/** Fill {Column} tokens with a data row — mirrors the backend's render_sms exactly
+ * (sequential exact-name replace, so columns with spaces like {Serial Number} work). */
+function renderSmsPreview(text: string, row: Record<string, string>): string {
+  let out = text;
+  for (const [k, v] of Object.entries(row)) out = out.split(`{${k}}`).join(v ?? "");
+  return out;
+}
+
 export default function SmsComposer({ jobId, columns, initialBody, onSaved }: SmsComposerProps) {
   const { toast } = useToast();
   const [expanded, setExpanded] = useState(false);
@@ -45,6 +54,7 @@ export default function SmsComposer({ jobId, columns, initialBody, onSaved }: Sm
   const [body, setBody] = useState(initialBody);
   const [savedBody, setSavedBody] = useState(initialBody);
   const [saving, setSaving] = useState(false);
+  const [sampleRow, setSampleRow] = useState<Record<string, string>>({});
 
   const [messages, setMessages] = useState<ChatMsg[]>([WELCOME]);
   const [chatInput, setChatInput] = useState("");
@@ -71,9 +81,19 @@ export default function SmsComposer({ jobId, columns, initialBody, onSaved }: Sm
     if (expanded && !chatLoaded) loadChat();
   }, [expanded, chatLoaded, loadChat]);
 
+  // First recipient's data, for the live preview.
+  useEffect(() => {
+    if (expanded) getJobSampleRow(jobId).then(setSampleRow).catch(() => {});
+  }, [expanded, jobId]);
+
   const dirty = body !== savedBody;
   const charCount = body.length;
   const smsSegments = Math.ceil(charCount / SMS_CHAR_LIMIT) || 1;
+  const hasSample = Object.keys(sampleRow).length > 0;
+  // {tokens} in the body that don't match any spreadsheet column → would send literally.
+  const unmatched = Array.from(
+    new Set((body.match(/\{[^{}]+\}/g) || []).map((t) => t.slice(1, -1)))
+  ).filter((t) => !columns.includes(t));
 
   async function handleSave() {
     setSaving(true);
@@ -204,6 +224,27 @@ export default function SmsComposer({ jobId, columns, initialBody, onSaved }: Sm
                   {smsSegments > 1 && <p className="text-xs text-amber-600">Will send as {smsSegments} SMS segments</p>}
                 </div>
               </div>
+
+              {/* Unmatched placeholder warning */}
+              {unmatched.length > 0 && (
+                <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                  These placeholders don&apos;t match a spreadsheet column and will send literally:{" "}
+                  <span className="font-mono">{unmatched.map((u) => `{${u}}`).join(", ")}</span>
+                </div>
+              )}
+
+              {/* Preview (first recipient) */}
+              {body.trim() && (
+                <div>
+                  <p className="text-xs font-medium text-gray-600 mb-1.5">Preview (first recipient)</p>
+                  <div className="text-sm text-gray-800 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 whitespace-pre-wrap">
+                    {renderSmsPreview(body, sampleRow)}
+                  </div>
+                  {!hasSample && (
+                    <p className="text-[11px] text-gray-400 mt-1">No recipient data loaded yet — showing placeholders.</p>
+                  )}
+                </div>
+              )}
 
               {/* Save */}
               <div className="flex items-center gap-3">

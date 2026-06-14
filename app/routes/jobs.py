@@ -578,6 +578,14 @@ def get_ai_chats(job_id: str, user: UserRow = Depends(get_current_user)):
     return {ch: job.get_ai_chat(ch) for ch in _AI_CHANNELS}
 
 
+@router.get("/{job_id}/sample-row")
+def get_sample_row(job_id: str, user: UserRow = Depends(get_current_user)):
+    """First data row as a dict — for live previews (e.g. SMS placeholder fill). {} if no data."""
+    job = _get_job_or_404(job_id, user)
+    rows = _job_sample_rows(job, 1)
+    return rows[0] if rows else {}
+
+
 @router.put("/{job_id}/ai-chats/{channel}")
 def set_ai_chat_route(job_id: str, channel: str, req: AiEditRequest, user: UserRow = Depends(get_current_user)):
     """Replace one channel's transcript (e.g. 'Clear'). Targeted DB write — avoids a full load + save."""
