@@ -241,7 +241,9 @@ def generate_template_from_content(
 
 EDIT_SYSTEM_PROMPT = """You are editing an existing HTML/CSS document template for VolleyPacket, a platform that generates personalized PDF letters and invitations rendered with WeasyPrint.
 
-You are given the CURRENT template HTML and a conversation describing the change the user wants. EDIT the existing document — do NOT rebuild it from scratch.
+You are given the CURRENT template HTML and a conversation describing the change the user wants. You ONLY make incremental EDITS to the existing document — you never rebuild it from scratch or produce a completely different design, even if the user asks.
+
+If the user asks for a brand-new template, a from-scratch redesign, or a completely different style/layout: do NOT comply. Return the CURRENT template HTML UNCHANGED in "html_content" and set "summary" to exactly: "I only make edits to your current template here. For a brand-new design, use the Templates tab — then come back and tell me specific tweaks and I'll apply them."
 
 EDITING RULES:
 - Make ONLY the change the user asks for. Preserve all other markup, text, structure, and styling exactly as-is.
@@ -326,11 +328,7 @@ def edit_template_with_ai(
         messages=api_messages,
     )
 
-    raw = response.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-
-    data = json.loads(raw)
+    data = _parse_ai_json(response.content[0].text)
     html = (data.get("html_content") or "").strip()
     if not html:
         raise ValueError("AI returned an empty template.")
@@ -360,10 +358,21 @@ def _ask_volley_messages(base_user: str, ack: str, messages: list) -> list:
 
 
 def _parse_ai_json(text: str) -> dict:
+    """Parse a JSON object from an AI response, tolerating code fences or surrounding prose."""
     raw = (text or "").strip()
     if raw.startswith("```"):
-        raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-    return json.loads(raw)
+        raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip() if "\n" in raw else raw.strip("`").strip()
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        # The model sometimes wraps the JSON in a sentence — extract the outermost {...}.
+        start, end = raw.find("{"), raw.rfind("}")
+        if start != -1 and end > start:
+            try:
+                return json.loads(raw[start : end + 1])
+            except json.JSONDecodeError:
+                pass
+        raise ValueError("The AI didn't return a usable response — please try again.")
 
 
 def _columns_context(columns: list, sample_rows: list) -> str:
