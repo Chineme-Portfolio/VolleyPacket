@@ -52,7 +52,6 @@ def generate_email_content(req: GenerateEmailRequest, user: UserRow = Depends(ge
 Generate a professional email with an HTML body. The email will be sent to multiple recipients using mail merge.
 
 AVAILABLE PLACEHOLDERS (from spreadsheet columns): {placeholders}
-Also available: {{sender_name}}, {{sender_title}}
 
 RULES:
 - Return ONLY valid JSON with "subject" and "body" keys
@@ -63,8 +62,8 @@ RULES:
 - Use a professional font stack: Arial, sans-serif
 - Body color: #2C2C2C, line-height: 1.6
 - Do NOT include <html> or <head> tags — just the <body> inner content wrapped in a div
-- End with a signature using {{sender_name}} and {{sender_title}}
-- Include a small footer line below the signature: "Powered by VolleyPacket.com" — omit only if the user explicitly asks to remove it."""
+- End with a simple closing (e.g. "Best regards,"); do not invent a sender name or title
+- Include a small footer line: "Powered by VolleyPacket.com" — omit only if the user explicitly asks to remove it."""
 
     user_prompt = req.prompt
     if req.context:

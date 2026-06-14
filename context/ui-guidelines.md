@@ -84,7 +84,7 @@ Always via `statusBadge(status)` from `lib/status.ts` — never inline the mappi
 | (unknown) | `bg-gray-100 text-gray-600` |
 
 ### Placeholder chips (merge fields)
-`{Column}` data tokens render as mono **amber** chips: `px-2 py-0.5 text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded-md font-mono` (add `hover:bg-amber-100 transition-colors` when clickable-to-insert). **Blue** (`bg-blue-50 text-blue-700 border-blue-200`, same shape) is reserved for the special sender tokens `{sender_name}`/`{sender_title}` in EmailComposer, to set them apart from spreadsheet columns. Used by EmailComposer, SmsComposer, JobTemplateEditor.
+`{Column}` merge-field tokens render as mono **amber** chips: `px-2 py-0.5 text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded-md font-mono` (add `hover:bg-amber-100 transition-colors` when clickable-to-insert). Used by EmailComposer, SmsComposer, JobTemplateEditor.
 
 ### Progress bars
 Slim rounded track `bg-gray-200 rounded-full` with a colored fill whose width is driven by `style={{ width: \`${pct}%\` }}`.
@@ -137,7 +137,7 @@ Browsers ignore `@page` margins on screen, so an HTML preview looks margin-less 
 ## Do Nots
 
 - Don't bypass `statusBadge()` for status colors.
-- Don't introduce a second primary color — green is the brand; blue/yellow/red/orange are reserved for status semantics. Merge-field chips are **amber**; blue is reserved for the `{sender_*}` tokens only.
+- Don't introduce a second primary color — green is the brand; blue/yellow/red/orange are reserved for status semantics. Merge-field chips are always **amber**.
 - Don't hand-roll modals, toasts, or progress bars — reuse the patterns above.
 - Don't add a `tailwind.config.js` — Tailwind v4 `@theme` only.
 - Don't put Framer Motion in app (non-landing) pages without reason — CSS `transition-colors` is the house default.

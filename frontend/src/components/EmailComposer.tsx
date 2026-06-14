@@ -37,7 +37,7 @@ const WELCOME: ChatMsg = {
   id: "welcome",
   role: "assistant",
   text:
-    "Ask Volley to draft or refine this email — e.g. \"a formal invitation to the oral interview\" or \"make the tone warmer and add the venue\". I'll use your spreadsheet columns plus {sender_name}/{sender_title} as placeholders, and apply changes here immediately.",
+    "Ask Volley to draft or refine this email — e.g. \"a formal invitation to the oral interview\" or \"make the tone warmer and add the venue\". I'll use your spreadsheet columns as placeholders, and apply changes here immediately.",
 };
 
 const GENERATING_TEXT = "Drafting the email…";
@@ -242,17 +242,6 @@ export default function EmailComposer({ jobId, columns, initialSubject, initialB
                     className="px-2 py-0.5 text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded-md font-mono hover:bg-amber-100 transition-colors"
                   >
                     {`{${col}}`}
-                  </button>
-                ))}
-                {["{sender_name}", "{sender_title}"].map((token) => (
-                  <button
-                    key={token}
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => insertPlaceholder(token)}
-                    className="px-2 py-0.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-md font-mono hover:bg-blue-100 transition-colors"
-                  >
-                    {token}
                   </button>
                 ))}
               </div>

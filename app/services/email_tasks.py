@@ -12,13 +12,9 @@ from app import config
 logger = logging.getLogger(__name__)
 
 
-def _render_body(template_html: str, row_dict: dict, sender_name: str, sender_title: str) -> str:
-    """Replace placeholders in the email body with row values and sender info."""
+def _render_body(template_html: str, row_dict: dict) -> str:
+    """Replace {Column} placeholders in the email body with row values."""
     body = template_html
-    # Replace known placeholders
-    body = body.replace("{sender_name}", sender_name)
-    body = body.replace("{sender_title}", sender_title)
-    # Replace any column-based placeholders like {Name}, {Email}, {ExamNo}, etc.
     for key, val in row_dict.items():
         body = body.replace(f"{{{key}}}", str(val))
     return body
@@ -48,15 +44,6 @@ def run_email_send(job: Job, provider: EmailProvider, from_name: str, from_email
         # Use the job's email content verbatim — never a hardcoded generic message.
         # The /emails/send route guarantees this is non-empty before the task starts.
         email_body_tpl = job.email_body or ""
-
-        # Sender info for template (signature field is optional)
-        sig_name = from_name
-        sig_title = ""
-        if job.template:
-            sig = getattr(job.template, "signature", None)
-            if sig:
-                sig_name = getattr(sig, "name", None) or from_name
-                sig_title = getattr(sig, "title", None) or ""
 
         os.makedirs(config.LOG_FOLDER, exist_ok=True)
         log_path = os.path.join(config.LOG_FOLDER, f"run_{job.timestamp}.csv")
@@ -141,7 +128,7 @@ def run_email_send(job: Job, provider: EmailProvider, from_name: str, from_email
 
                 # --- Render email content with placeholders ---
                 subject_line = _render_subject(email_subject_tpl, row_dict)
-                body_html = _render_body(email_body_tpl, row_dict, sig_name, sig_title)
+                body_html = _render_body(email_body_tpl, row_dict)
 
                 try:
                     message = EmailMessage(
