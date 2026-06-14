@@ -6,19 +6,22 @@ import Link from "next/link";
 interface Guide {
   id: string;
   name: string;
+  channel: "email" | "sms";
   type: "api" | "smtp";
   difficulty: "Easy" | "Medium";
-  freeEmails: string;
+  meta: string;
   steps: { title: string; content: string }[];
 }
 
 const guides: Guide[] = [
+  // ── Email providers ──────────────────────────────────────────────
   {
     id: "resend",
     name: "Resend",
+    channel: "email",
     type: "api",
     difficulty: "Easy",
-    freeEmails: "3,000/month",
+    meta: "3,000 emails/month free",
     steps: [
       {
         title: "Create a Resend account",
@@ -44,9 +47,10 @@ const guides: Guide[] = [
   {
     id: "sendgrid",
     name: "SendGrid",
+    channel: "email",
     type: "api",
     difficulty: "Easy",
-    freeEmails: "100/day",
+    meta: "100 emails/day free",
     steps: [
       {
         title: "Create a SendGrid account",
@@ -73,9 +77,10 @@ const guides: Guide[] = [
   {
     id: "gmail",
     name: "Gmail SMTP",
+    channel: "email",
     type: "smtp",
     difficulty: "Medium",
-    freeEmails: "500/day",
+    meta: "~500 emails/day",
     steps: [
       {
         title: "Enable 2-Step Verification",
@@ -97,9 +102,10 @@ const guides: Guide[] = [
   {
     id: "zoho",
     name: "Zoho SMTP",
+    channel: "email",
     type: "smtp",
     difficulty: "Medium",
-    freeEmails: "Included with Zoho Mail",
+    meta: "Included with Zoho Mail",
     steps: [
       {
         title: "Get a Zoho Mail account",
@@ -121,9 +127,10 @@ const guides: Guide[] = [
   {
     id: "custom",
     name: "Custom SMTP",
+    channel: "email",
     type: "smtp",
     difficulty: "Medium",
-    freeEmails: "Depends on provider",
+    meta: "Depends on provider",
     steps: [
       {
         title: "Get your SMTP credentials",
@@ -142,12 +149,187 @@ const guides: Guide[] = [
       },
     ],
   },
+
+  // ── SMS providers ────────────────────────────────────────────────
+  {
+    id: "bulksms",
+    name: "BulkSMS Nigeria",
+    channel: "sms",
+    type: "api",
+    difficulty: "Easy",
+    meta: "Nigeria · pay-as-you-go",
+    steps: [
+      {
+        title: "Create a BulkSMS account",
+        content: "Sign up at bulksmsnigeria.com and fund your wallet (SMS is pay-as-you-go).",
+      },
+      {
+        title: "Get your API token",
+        content:
+          "In the dashboard, open Developers / API and copy your API token. Keep it secret — it's your sending credential.",
+      },
+      {
+        title: "Register a Sender ID",
+        content:
+          "Under Sender IDs, register the name recipients will see (e.g. your business name) and wait for approval. Unapproved sender IDs are rejected.",
+      },
+      {
+        title: "Add to VolleyPacket",
+        content:
+          "Go to Settings > SMS Provider, select BulkSMS Nigeria, paste your API token, set your approved Sender ID, choose your default country, Save, then Send Test SMS.",
+      },
+    ],
+  },
+  {
+    id: "twilio",
+    name: "Twilio",
+    channel: "sms",
+    type: "api",
+    difficulty: "Medium",
+    meta: "Global · free trial credit",
+    steps: [
+      {
+        title: "Create a Twilio account",
+        content:
+          "Sign up at twilio.com — new accounts get trial credit. Note: trial accounts can only text numbers you've verified until you upgrade.",
+      },
+      {
+        title: "Get a phone number",
+        content:
+          "In Console > Phone Numbers > Buy a number, get an SMS-capable number. It will be in E.164 form (e.g. +1...). This is your Sender ID.",
+      },
+      {
+        title: "Copy your Account SID and Auth Token",
+        content:
+          "On the Twilio Console dashboard (console.twilio.com) copy your Account SID and Auth Token (the Auth Token is your secret).",
+      },
+      {
+        title: "Add to VolleyPacket",
+        content:
+          "Go to Settings > SMS Provider, select Twilio, paste the Account SID and Auth Token, set the Sender ID to your Twilio number, Save, then Send Test SMS.",
+      },
+    ],
+  },
+  {
+    id: "vonage",
+    name: "Vonage (Nexmo)",
+    channel: "sms",
+    type: "api",
+    difficulty: "Medium",
+    meta: "Global · free trial credit",
+    steps: [
+      {
+        title: "Create a Vonage account",
+        content: "Sign up at vonage.com (Communications APIs). New accounts include trial credit.",
+      },
+      {
+        title: "Copy your API key and secret",
+        content: "From the dashboard home (dashboard.nexmo.com), copy your API key and API secret.",
+      },
+      {
+        title: "Choose a Sender ID",
+        content:
+          "Use an approved alphanumeric sender ID (where the destination country allows it) or buy a Vonage number to send from.",
+      },
+      {
+        title: "Add to VolleyPacket",
+        content:
+          "Go to Settings > SMS Provider, select Vonage, paste your API key and secret, set your Sender ID, Save, then Send Test SMS.",
+      },
+    ],
+  },
+  {
+    id: "termii",
+    name: "Termii",
+    channel: "sms",
+    type: "api",
+    difficulty: "Medium",
+    meta: "Africa · pay-as-you-go",
+    steps: [
+      {
+        title: "Create a Termii account",
+        content: "Sign up at termii.com and fund your wallet.",
+      },
+      {
+        title: "Get your API key",
+        content: "In accounts.termii.com > Settings > API, copy your API key.",
+      },
+      {
+        title: "Register a Sender ID",
+        content:
+          "Request a Sender ID and wait for approval — it's required before you can send live messages.",
+      },
+      {
+        title: "Add to VolleyPacket",
+        content:
+          "Go to Settings > SMS Provider, select Termii, paste your API key, set your approved Sender ID, Save, then Send Test SMS.",
+      },
+    ],
+  },
+  {
+    id: "africastalking",
+    name: "Africa's Talking",
+    channel: "sms",
+    type: "api",
+    difficulty: "Medium",
+    meta: "Africa · sandbox + live",
+    steps: [
+      {
+        title: "Create an account",
+        content: "Sign up at africastalking.com and create an app from the dashboard.",
+      },
+      {
+        title: "Get your username and API key",
+        content:
+          "Copy your app's username (use \"sandbox\" for testing) and generate an API key under Settings > API Key.",
+      },
+      {
+        title: "Sender ID / short code (optional)",
+        content:
+          "For production, request an alphanumeric Sender ID or short code. The sandbox uses a default sender, so you can skip this while testing.",
+      },
+      {
+        title: "Add to VolleyPacket",
+        content:
+          "Go to Settings > SMS Provider, select Africa's Talking, enter your username and API key, optionally a Sender ID, Save, then Send Test SMS.",
+      },
+    ],
+  },
 ];
 
 export default function GuidesPage() {
   const [activeGuide, setActiveGuide] = useState<string | null>(null);
 
   const selected = guides.find((g) => g.id === activeGuide);
+  const emailGuides = guides.filter((g) => g.channel === "email");
+  const smsGuides = guides.filter((g) => g.channel === "sms");
+
+  const renderCard = (guide: Guide) => (
+    <button
+      key={guide.id}
+      onClick={() => setActiveGuide(activeGuide === guide.id ? null : guide.id)}
+      className={`text-left p-5 rounded-2xl border-2 transition-all ${
+        activeGuide === guide.id
+          ? "border-green-700 bg-green-50 shadow-sm"
+          : "border-gray-100 bg-white hover:border-gray-200"
+      }`}
+    >
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-lg font-semibold text-gray-900">{guide.name}</h3>
+        <span
+          className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+            guide.type === "api" ? "bg-blue-100 text-blue-700" : "bg-orange-100 text-orange-700"
+          }`}
+        >
+          {guide.type === "api" ? "API" : "SMTP"}
+        </span>
+      </div>
+      <div className="flex items-center gap-4 text-xs text-gray-500">
+        <span>Difficulty: {guide.difficulty}</span>
+        <span>{guide.meta}</span>
+      </div>
+    </button>
+  );
 
   return (
     <div>
@@ -155,46 +337,26 @@ export default function GuidesPage() {
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6 sm:mb-8">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Setup Guides</h1>
-          <p className="text-gray-500 mt-1 text-sm">Step-by-step instructions for connecting your email service.</p>
+          <p className="text-gray-500 mt-1 text-sm">Step-by-step instructions for connecting your email and SMS services.</p>
         </div>
         <Link
-          href="/settings/email"
+          href="/settings"
           className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors self-start"
         >
-          Email Settings
+          Settings
         </Link>
       </div>
 
-      {/* Provider cards */}
+      {/* Email providers */}
+      <h2 className="text-lg font-semibold text-gray-900 mb-3">Email providers</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-        {guides.map((guide) => (
-          <button
-            key={guide.id}
-            onClick={() => setActiveGuide(activeGuide === guide.id ? null : guide.id)}
-            className={`text-left p-5 rounded-2xl border-2 transition-all ${
-              activeGuide === guide.id
-                ? "border-green-700 bg-green-50 shadow-sm"
-                : "border-gray-100 bg-white hover:border-gray-200"
-            }`}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-lg font-semibold text-gray-900">{guide.name}</h3>
-              <span
-                className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                  guide.type === "api"
-                    ? "bg-blue-100 text-blue-700"
-                    : "bg-orange-100 text-orange-700"
-                }`}
-              >
-                {guide.type === "api" ? "API" : "SMTP"}
-              </span>
-            </div>
-            <div className="flex items-center gap-4 text-xs text-gray-500">
-              <span>Difficulty: {guide.difficulty}</span>
-              <span>Free: {guide.freeEmails}</span>
-            </div>
-          </button>
-        ))}
+        {emailGuides.map(renderCard)}
+      </div>
+
+      {/* SMS providers */}
+      <h2 className="text-lg font-semibold text-gray-900 mb-3">SMS providers</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+        {smsGuides.map(renderCard)}
       </div>
 
       {/* Expanded guide */}
@@ -221,7 +383,7 @@ export default function GuidesPage() {
 
           <div className="mt-8 pt-6 border-t border-gray-100 flex items-center gap-3">
             <Link
-              href="/settings/email"
+              href={selected.channel === "sms" ? "/settings/sms" : "/settings/email"}
               className="px-6 py-2.5 bg-green-800 text-white text-sm font-medium rounded-xl hover:bg-green-900 transition-colors"
             >
               Configure {selected.name}
