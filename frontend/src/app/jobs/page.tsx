@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getJobs, cancelJob, Job } from "@/lib/api";
-import { statusBadge } from "@/lib/status";
+import JobStatusControl from "@/components/JobStatusControl";
 import NewJobModal from "@/components/NewJobModal";
 import { useToast } from "@/components/Toast";
 import { friendlyError } from "@/lib/errors";
@@ -123,9 +123,7 @@ export default function JobsPage() {
                       <p className="text-xs text-gray-400 truncate">{job.candidate_count} candidates</p>
                     </div>
                   </div>
-                  <span className={`text-xs font-medium px-2.5 py-1 rounded-lg capitalize flex-shrink-0 ${statusBadge(job.status)}`}>
-                    {job.status}
-                  </span>
+                  <JobStatusControl job={job} onChanged={loadJobs} className="flex-shrink-0" />
                 </div>
                 <div className="mt-2 ml-12 flex items-center justify-between">
                   <p className="text-xs text-gray-500">{taskSummary(job)}</p>
@@ -183,9 +181,7 @@ export default function JobsPage() {
                   <td className="px-6 py-4 text-sm text-gray-700">{job.template_id || "—"}</td>
                   <td className="px-6 py-4 text-xs text-gray-500">{taskSummary(job)}</td>
                   <td className="px-6 py-4">
-                    <span className={`text-xs font-medium px-2.5 py-1 rounded-lg capitalize ${statusBadge(job.status)}`}>
-                      {job.status}
-                    </span>
+                    <JobStatusControl job={job} onChanged={loadJobs} />
                   </td>
                   <td className="px-6 py-4 text-right">
                     {(job.status === "created" || job.status === "running") && (

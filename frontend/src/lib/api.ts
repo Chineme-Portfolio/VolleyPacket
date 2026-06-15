@@ -80,6 +80,7 @@ export interface TaskStatus {
 export interface Job {
   job_id: string;
   status: string;
+  status_manual?: string | null; // non-null = user-set override (vs auto-derived)
   candidate_file: string | null;
   candidate_count: number;
   columns: string[];
@@ -97,6 +98,15 @@ export async function getJobs(): Promise<Job[]> {
 
 export async function getJob(jobId: string): Promise<Job> {
   return fetchJSON(`/jobs/${jobId}`);
+}
+
+/** Manually set a job's status, or pass null to revert to automatic (derived from tasks). */
+export async function setJobStatus(jobId: string, status: string | null): Promise<{ status: string | null }> {
+  return fetchJSON(`/jobs/${jobId}/status`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
 }
 
 export async function uploadDocument(file: File): Promise<UploadResponse> {

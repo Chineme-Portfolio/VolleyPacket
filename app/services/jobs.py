@@ -103,6 +103,7 @@ class Job:
         self.job_id = job_id
         self.owner_id = owner_id
         self.status = "created"
+        self.status_manual = None  # user-set override; None = automatic
         self.created_at = datetime.now()
         self.timestamp = self.created_at.strftime("%Y%m%d_%H%M%S")
 
@@ -173,6 +174,9 @@ class Job:
         3. All tasks complete → job is complete
         4. Otherwise (mix of created/cancelled/failed) → keep current or created
         """
+        # A user-set manual status overrides the derived one — don't recompute.
+        if getattr(self, "status_manual", None):
+            return
         statuses = [t.status for t in self.tasks.values()]
         phases = [t.phase for t in self.tasks.values()]
 
@@ -191,6 +195,7 @@ class Job:
         return JobResponse(
             job_id=self.job_id,
             status=self.status,
+            status_manual=getattr(self, "status_manual", None),
             candidate_file=self.candidate_file,
             candidate_count=len(self.data),
             columns=self.columns,
@@ -241,7 +246,13 @@ class Job:
                     pass
 
             row.owner_id = self.owner_id
-            row.status = self.status
+            # Respect a manual status override (set via set_manual_status, possibly from
+            # another request/worker) — a finishing background task must not overwrite it.
+            if getattr(row, "status_manual", None):
+                self.status = row.status_manual
+                row.status = row.status_manual
+            else:
+                row.status = self.status
             row.created_at = self.created_at
             row.timestamp = self.timestamp
             row.candidate_file = self.candidate_file
@@ -345,6 +356,9 @@ class Job:
         job.job_id = row.id
         job.owner_id = row.owner_id
         job.status = row.status
+        job.status_manual = getattr(row, "status_manual", None)
+        if job.status_manual:
+            job.status = job.status_manual  # manual override wins over the stored derived status
         job.created_at = row.created_at
         job.timestamp = row.timestamp
         job.candidate_file = row.candidate_file
@@ -479,6 +493,32 @@ class Job:
         except Exception as e:
             session.rollback()
             logger.error(f"Failed to save stop flag for {self.job_id}/{task_name}: {e}")
+        finally:
+            session.close()
+
+    def set_manual_status(self, new_status):
+        """Manually override the job status (sticky), or revert to automatic when new_status is None.
+
+        Written directly to the DB (like cancel_task) so a running task's save() can't clobber it;
+        save() and update_status_from_tasks() both respect status_manual.
+        """
+        with self._lock:
+            self.status_manual = new_status
+            if new_status:
+                self.status = new_status
+            else:
+                self.update_status_from_tasks()  # status_manual now None → recompute from tasks
+        from app.database import get_session, JobRow
+        session = get_session()
+        try:
+            row = session.get(JobRow, self.job_id)
+            if row:
+                row.status_manual = new_status
+                row.status = self.status
+                session.commit()
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Failed to set manual status for {self.job_id}: {e}")
         finally:
             session.close()
 

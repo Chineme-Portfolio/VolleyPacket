@@ -23,18 +23,7 @@ import {
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { friendlyError } from "@/lib/errors";
-
-function statusColor(status: string) {
-  const map: Record<string, string> = {
-    created: "bg-blue-100 text-blue-700",
-    running: "bg-yellow-100 text-yellow-700",
-    complete: "bg-green-100 text-green-700",
-    completed: "bg-green-100 text-green-700",
-    cancelled: "bg-red-100 text-red-700",
-    failed: "bg-red-100 text-red-700",
-  };
-  return map[status] || "bg-gray-100 text-gray-600";
-}
+import JobStatusControl from "@/components/JobStatusControl";
 
 export default function JobDetailPage() {
   const params = useParams();
@@ -191,9 +180,7 @@ export default function JobDetailPage() {
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <h1 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">{job.candidate_file || "Untitled Job"}</h1>
-            <span className={`text-xs font-medium px-2.5 py-1 rounded-lg capitalize flex-shrink-0 ${statusColor(job.status)}`}>
-              {job.status}
-            </span>
+            <JobStatusControl job={job} onChanged={loadJob} className="flex-shrink-0" />
           </div>
           <p className="text-sm text-gray-500 mt-1">
             {job.candidate_count} recipients

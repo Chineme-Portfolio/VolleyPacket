@@ -68,6 +68,7 @@ class AttachTemplateRequest(BaseModel):
 class JobResponse(BaseModel):
     job_id: str
     status: str
+    status_manual: Optional[str] = None  # non-null = user-set override (vs auto-derived)
     candidate_file: Optional[str] = None
     candidate_count: int = 0
     columns: list[str] = []

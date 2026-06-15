@@ -8,9 +8,9 @@ Update this file after every working session. Any agent reading this should imme
 
 **Branch:** `v2.0` (default branch for PRs: `main`)
 **Phase:** B — Stabilization (see `roadmap.md`)
-**Current focus:** Nice-to-have features on `v2.0`. Latest: **QR codes & barcodes** — per-recipient `{QR:…}`/`{BARCODE:…}` tokens on PDFs (embedded) and in emails (hosted, signed image endpoint).
-**Last completed:** QR/barcode codes + the **stale-PDF fix** ([16]) — a template edit now invalidates the job's rendered PDFs (`Job.clear_generated_pdfs()`) so regeneration rebuilds, and the in-job preview renders code tokens (this session).
-**Next:** **Set `PUBLIC_API_URL` on Railway** (required for email codes) → live-verify codes (scan a PDF + an email image) → live-verify Template upgrade + Profile → unified AI seam → Paystack route test.
+**Current focus:** Nice-to-have features on `v2.0`. Latest: **Manual job status** — mark a job's status (sticky) for tracking, overriding the auto-derived one, from the dashboard / jobs list / job detail.
+**Last completed:** Manual job status — `status_manual` column + sticky override (direct-write like cancel, `update_status_from_tasks` no-op, `save()` guard), `POST /jobs/{id}/status`, shared `JobStatusControl` in 3 places, +on_hold/archived (this session).
+**Next:** the 2nd of "2 more features" (pending) → **set `PUBLIC_API_URL` on Railway** (email codes) → live-verify recent features → unified AI seam → Paystack route test.
 
 ---
 
@@ -34,6 +34,7 @@ The load-bearing decisions and the reasoning — do not re-litigate these withou
 - **DB is the single source of truth for job/task state; no in-memory job cache.** The cache was tried and removed (`d73971e`) — with 2 gunicorn workers, memory diverges. Every request loads fresh; only background threads hold live Job references.
 - **Background work = daemon threads, not Celery/asyncio.** Deliberate simplicity: no broker to operate. The cost — cross-worker invisibility, redeploy death — is paid via DB-backed state, flag polling, and startup stale-task marking. Don't introduce a second concurrency mechanism casually.
 - **`tasks_json` is merge-written, control flags are direct-written.** Progress merges (terminal wins, higher progress wins); cancel/pause/resume bypass `save()` into dedicated columns so they can't be overwritten (`ade869b`, `0f583d2`).
+- **Manual job status overrides the derived one (sticky).** Nullable `jobs.status_manual`: when set, `update_status_from_tasks` no-ops and `save()` keeps `row.status = row.status_manual` (read FRESH from DB so a running task's save can't revert it — same family as the cancel/stop-flag direct-write). `set_manual_status(None)` reverts to automatic. UI = shared `JobStatusControl` on dashboard/list/detail; statuses include tracking-only on_hold/archived.
 - **Stale-"running" recovery happens once at startup, never per-load.** Per-load marking corrupted legitimately-running tasks on the other worker.
 - **Two job loaders.** Full (DataFrame from storage, ~3s, can save) vs light (metadata only, instant, must NEVER save) — list/status/SSE endpoints use light (`c71b7cf`).
 - **Spreadsheets are read as strings, always.** Type inference destroyed phone numbers/dates (`88f0883`).
@@ -55,6 +56,10 @@ The load-bearing decisions and the reasoning — do not re-litigate these withou
 ---
 
 ## Changelog (recent, newest first)
+
+### Manual job status (current)
+- Users can manually set a job's status (Created / Running / Complete / Cancelled / Failed + tracking-only **On hold** / **Archived**), or revert to **Automatic** — from the dashboard, jobs list, and job detail. Sticky: holds until changed; a finishing task won't flip it.
+- New nullable `jobs.status_manual`; `update_status_from_tasks` no-ops when set; `save()` respects the FRESH DB flag (a stale background thread can't clobber it); `set_manual_status()` direct-writes like `cancel_task`. `POST /jobs/{id}/status` (null = auto). Shared `JobStatusControl`; `lib/status.ts` gained on_hold/archived colors + `statusLabel`/`MANUAL_STATUSES`.
 
 ### QR codes & barcodes (current)
 - `{QR:payload}` / `{BARCODE:payload}` render a per-recipient scannable code from row data — on the PDF (embedded `data:` image) and in the email body (hosted signed image). Payload = a column value, a `{Col}`-templated URL, or a literal.

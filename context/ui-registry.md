@@ -38,8 +38,11 @@ Shared user-avatar primitive. Renders, in priority: a **preset** (`preset:<id>` 
 ### StatCard — `components/StatCard.tsx` (35 lines)
 Single metric card: label, value, optional icon. Standard white card (`bg-white rounded-2xl border border-gray-100 shadow-sm`). Used in a responsive grid on /dashboard.
 
-### RecentJobs — `components/RecentJobs.tsx` (64 lines)
-Compact list of the latest jobs with status badges (`statusBadge()`) linking to `/jobs/[id]`. Dashboard widget.
+### RecentJobs — `components/RecentJobs.tsx`
+Compact list of the latest jobs linking to `/jobs/[id]`; each row's status is a `JobStatusControl` overlaid on the link (so the badge is clickable without navigating). Dashboard widget; `onChanged` re-fetches the jobs.
+
+### JobStatusControl — `components/JobStatusControl.tsx`
+Clickable status badge → dropdown to manually set a job's status (Created/Running/Complete/On hold/Cancelled/Failed/Archived) or revert to **Automatic**; calls `setJobStatus()` then `onChanged()`. Shows a dot when the status is a manual override; stops click propagation (used inside the dashboard link + clickable job rows). Reused on the dashboard (RecentJobs), jobs list, and job-detail header. Badge colors + `statusLabel`/`MANUAL_STATUSES` live in `lib/status.ts`.
 
 ---
 

@@ -243,6 +243,28 @@ def cancel_task(job_id: str, task_name: str, user: UserRow = Depends(get_current
     return {"message": f"Task '{task_name}' cancelled", "task": task_name}
 
 
+# --- MANUAL JOB STATUS ---
+
+MANUAL_JOB_STATUSES = {"created", "running", "complete", "cancelled", "failed", "on_hold", "archived"}
+
+
+class SetJobStatusRequest(BaseModel):
+    status: Optional[str] = None  # null → revert to automatic (derived from tasks)
+
+
+@router.post("/{job_id}/status")
+def set_job_status(job_id: str, req: SetJobStatusRequest, user: UserRow = Depends(get_current_user)):
+    """Manually set a job's status (sticky override), or revert to automatic with status=null."""
+    job = _get_job_or_404_light(job_id, user)
+    if req.status is not None and req.status not in MANUAL_JOB_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status. Must be one of {sorted(MANUAL_JOB_STATUSES)} or null.",
+        )
+    job.set_manual_status(req.status)
+    return {"message": "Status updated", "job_id": job_id, "status": req.status}
+
+
 # --- DELETE JOB ---
 
 @router.delete("/{job_id}")

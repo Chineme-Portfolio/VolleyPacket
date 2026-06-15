@@ -90,6 +90,7 @@ class JobRow(Base):
     id = Column(String, primary_key=True)  # job_id (8-char UUID)
     owner_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     status = Column(String, nullable=False, default="created")
+    status_manual = Column(String, nullable=True)  # user-set override; null = automatic (derived from tasks)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     timestamp = Column(String, nullable=False)  # "YYYYMMDD_HHMMSS" for file naming
 

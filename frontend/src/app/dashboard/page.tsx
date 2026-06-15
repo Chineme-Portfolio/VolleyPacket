@@ -101,7 +101,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Recent Jobs — spans 2 cols */}
         <div className="lg:col-span-2">
-          <RecentJobs jobs={jobs} />
+          <RecentJobs jobs={jobs} onChanged={() => getJobs().then(setJobs).catch(() => {})} />
         </div>
 
         {/* Templates */}
