@@ -45,6 +45,10 @@ STRIPE_PRICE_CLASSIC = os.getenv("STRIPE_PRICE_CLASSIC", "")  # Stripe Price ID 
 STRIPE_PRICE_PRO = os.getenv("STRIPE_PRICE_PRO", "")          # Stripe Price ID for Pro tier
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
+# Public base URL of THIS backend (e.g. https://api.volleypacket.com) — used to build
+# absolute <img src> URLs for QR/barcode images in emails (clients block data: images).
+PUBLIC_API_URL = os.getenv("PUBLIC_API_URL", "")
+
 # Storage — auto-detected from Railway env vars (BUCKET, ACCESS_KEY_ID, etc.)
 # Override with STORAGE_BACKEND=local to force local filesystem
 # See app/services/storage.py for full env var fallback chain

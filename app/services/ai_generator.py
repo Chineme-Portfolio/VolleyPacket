@@ -69,7 +69,11 @@ def extract_placeholders(html: str) -> list[str]:
     """
     found = set(re.findall(r"\{([A-Za-z_]\w*)\}", html))
     internal = {"PhotoURL", "PhotoLink"}
-    return sorted(p for p in found if p not in internal and not p.startswith("EMBEDDED_IMAGE_"))
+    names = {p for p in found if p not in internal and not p.startswith("EMBEDDED_IMAGE_")}
+    # Columns referenced by bare {QR:Col}/{BARCODE:Col} tokens also need column-mapping.
+    from app.services.codes import referenced_columns
+    names.update(referenced_columns(html))
+    return sorted(names)
 
 
 SYSTEM_PROMPT = """You are a professional document designer for VolleyPacket, a platform that generates personalized PDF letters and invitations.
@@ -94,6 +98,12 @@ IMAGE RULES:
 - For per-row dynamic photos (e.g. passport photos, headshots from a spreadsheet), use {PhotoURL} as the src:
   Example: <img src="{PhotoURL}" alt="Photo" style="width: 100px; height: 120px; object-fit: cover;" />
 - Do NOT include {EMBEDDED_IMAGE_N} or {PhotoURL} in the "placeholders" array — they are handled separately.
+
+QR CODE / BARCODE RULES:
+- To add a scannable QR code, use {QR:ColumnName} (encodes that recipient's value) or {QR:https://your-site/path/{ColumnName}} for a per-recipient link.
+- To add a 1D barcode (Code128, e.g. a coupon or order number), use {BARCODE:ColumnName} the same way.
+- Write the token on its own — it auto-renders as an <img>. Do NOT wrap it in your own <img> tag. To size it, put the token inside a container sized with CSS.
+- Do NOT include {QR:…} or {BARCODE:…} tokens in the "placeholders" array.
 
 PLACEHOLDER RULES:
 - Use curly brace placeholders like {Name}, {Email}, {Date} for personalized data.
@@ -248,6 +258,7 @@ If the user asks for a brand-new template, a from-scratch redesign, or a complet
 EDITING RULES:
 - Make ONLY the change the user asks for. Preserve all other markup, text, structure, and styling exactly as-is.
 - Keep every {EMBEDDED_IMAGE_N} placeholder (embedded logos/signatures/letterheads) and every {PhotoURL}/{PhotoLink} placeholder (per-row photos) intact and in place, unless the user explicitly asks to remove that image. NEVER invent or output base64 image data yourself.
+- Keep every {QR:…} and {BARCODE:…} token intact (they render scannable codes) unless the user asks to change or remove them.
 - Keep {Placeholder} merge fields working. Use ONLY the spreadsheet columns provided as placeholder names — do not introduce placeholders for columns that don't exist.
 - Keep the document a COMPLETE, single-page HTML document (<!DOCTYPE html> … </html>) with an @page rule for A4 sizing.
 
@@ -276,6 +287,7 @@ You are given the CURRENT template HTML (which may be a near-empty starter) and 
 RULES:
 - Apply the user's request. For small tweaks, change only what's asked and keep the rest. For a redesign, restructure freely into what the user describes.
 - Keep every {EMBEDDED_IMAGE_N} placeholder (embedded logos/signatures/letterheads) and every {PhotoURL}/{PhotoLink} placeholder (per-row photos) intact unless the user asks to remove that image. NEVER invent or output base64 image data yourself.
+- Support {QR:Column} / {BARCODE:Column} tokens — they render scannable QR codes / Code128 barcodes from a column's value (or a {Col}-templated URL). Add, keep, or change them as the user asks; they auto-render as <img>, so never wrap them in your own <img> tag.
 - Keep {Placeholder} merge fields working. If specific spreadsheet columns are provided, use ONLY those as placeholder names; otherwise create sensible {Placeholder} fields for the data the user describes.
 - Keep the document a COMPLETE, single-page HTML document (<!DOCTYPE html> … </html>) with an @page rule for A4 sizing.
 

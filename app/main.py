@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routes import templates, upload, generate, jobs
-from app.routes import auth, email_settings, sms_settings, billing, ai_email
+from app.routes import auth, email_settings, sms_settings, billing, ai_email, codes
 from app.database import init_db
 from app.middleware import RequestLoggingMiddleware
 from app import config
@@ -55,6 +55,7 @@ def health_check():
 
 # Public
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])
+app.include_router(codes.router, prefix="/codes", tags=["Codes"])
 
 # Protected
 app.include_router(templates.router, prefix="/templates", tags=["Templates"])

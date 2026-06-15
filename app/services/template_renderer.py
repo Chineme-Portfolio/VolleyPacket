@@ -9,6 +9,7 @@ import re
 from weasyprint import HTML
 
 from app.models import TemplateConfig
+from app.services.codes import expand_codes, referenced_columns
 
 
 PLACEHOLDER_RE = re.compile(r"\{([^}]+)\}")
@@ -28,7 +29,10 @@ def render_pdf(template: TemplateConfig, row: dict, output_path: str, photo_path
     """Render a template to PDF with data from one row."""
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
 
-    html = fill_placeholders(template.html_content, row)
+    # Expand {QR:…}/{BARCODE:…} into embedded images first (they resolve their own
+    # payloads), then fill ordinary {Placeholder} merge fields.
+    html = expand_codes(template.html_content, row, mode="datauri")
+    html = fill_placeholders(html, row)
 
     # If a photo path is provided, replace photo placeholder
     if photo_path and os.path.exists(photo_path):
@@ -87,8 +91,15 @@ def add_preview_page_margins(html: str) -> str:
 
 def render_html_preview(template: TemplateConfig) -> str:
     """Return HTML with sample data filled in (for iframe preview, no PDF)."""
+    # Expand QR/barcode tokens first with plain sample values, so the preview shows a real
+    # sample code (rather than a highlighted chip encoded into the image).
+    plain = {p: p for p in template.placeholders}
+    for c in referenced_columns(template.html_content):
+        plain.setdefault(c, c)
+    html = expand_codes(template.html_content, plain, mode="datauri")
+
     sample_row = {}
     for p in template.placeholders:
         sample_row[p] = f'<span style="background:#fef3c7;padding:1px 4px;border-radius:3px;font-weight:600;">{p}</span>'
 
-    return add_preview_page_margins(fill_placeholders(template.html_content, sample_row))
+    return add_preview_page_margins(fill_placeholders(html, sample_row))

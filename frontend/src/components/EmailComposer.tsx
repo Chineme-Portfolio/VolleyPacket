@@ -51,6 +51,7 @@ export default function EmailComposer({ jobId, columns, initialSubject, initialB
   const { toast } = useToast();
   const [expanded, setExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("askvolley");
+  const [insertAs, setInsertAs] = useState<"text" | "qr" | "barcode">("text");
 
   const [subject, setSubject] = useState(initialSubject);
   const [body, setBody] = useState(initialBody);
@@ -94,7 +95,7 @@ export default function EmailComposer({ jobId, columns, initialSubject, initialB
     new Set(
       [...(subject.match(/\{[^{}]+\}/g) || []), ...(body.match(/\{[^{}]+\}/g) || [])].map((t) => t.slice(1, -1))
     )
-  ).filter((t) => !columns.includes(t));
+  ).filter((t) => !columns.includes(t) && !t.startsWith("QR:") && !t.startsWith("BARCODE:"));
 
   async function handleSave() {
     setSaving(true);
@@ -234,23 +235,49 @@ export default function EmailComposer({ jobId, columns, initialSubject, initialB
             </div>
           )}
 
-          {/* Placeholder chips (not on the chat tab) */}
+          {/* Placeholder / code chips (not on the chat tab) */}
           {activeTab !== "askvolley" && (
             <div className="mt-3 bg-gray-50 rounded-xl p-3">
-              <p className="text-xs font-medium text-gray-600 mb-2">Insert placeholder</p>
-              <div className="flex flex-wrap gap-1.5">
-                {columns.map((col) => (
-                  <button
-                    key={col}
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => insertPlaceholder(`{${col}}`)}
-                    className="px-2 py-0.5 text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded-md font-mono hover:bg-amber-100 transition-colors"
-                  >
-                    {`{${col}}`}
-                  </button>
-                ))}
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-medium text-gray-600">
+                  Insert {insertAs === "text" ? "placeholder" : insertAs === "qr" ? "QR code" : "barcode"}
+                </p>
+                <div className="flex gap-1">
+                  {([["text", "Text"], ["qr", "QR"], ["barcode", "Barcode"]] as const).map(([m, label]) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setInsertAs(m)}
+                      className={`px-2 py-0.5 text-[11px] rounded-md border transition-colors ${
+                        insertAs === m ? "bg-green-700 text-white border-green-700" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
+              <div className="flex flex-wrap gap-1.5">
+                {columns.map((col) => {
+                  const token = insertAs === "qr" ? `{QR:${col}}` : insertAs === "barcode" ? `{BARCODE:${col}}` : `{${col}}`;
+                  return (
+                    <button
+                      key={col}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => insertPlaceholder(token)}
+                      className="px-2 py-0.5 text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded-md font-mono hover:bg-amber-100 transition-colors"
+                    >
+                      {token}
+                    </button>
+                  );
+                })}
+              </div>
+              {insertAs !== "text" && (
+                <p className="text-[11px] text-gray-400 mt-2">
+                  Renders a scannable {insertAs === "qr" ? "QR code" : "barcode"} per recipient. In email it loads from a link, so recipients may need to allow images.
+                </p>
+              )}
             </div>
           )}
 

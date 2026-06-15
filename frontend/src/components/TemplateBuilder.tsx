@@ -431,13 +431,26 @@ export default function TemplateBuilder({ onSaved }: TemplateBuilderProps) {
               <div className="flex-1 overflow-hidden rounded-xl border border-gray-200 bg-white focus-within:ring-2 focus-within:ring-green-700/20 focus-within:border-green-300">
                 <HtmlCodeEditor value={htmlDraft} onChange={setHtmlDraft} />
               </div>
-              <div className="mt-3">
+              <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
                   onClick={handleUpdatePreview}
                   className="px-4 py-2 text-sm font-medium text-green-800 bg-green-50 rounded-xl hover:bg-green-100 transition-colors"
                 >
                   Update preview
                 </button>
+                <span className="text-gray-300">·</span>
+                <span className="text-[11px] text-gray-400">Insert a code:</span>
+                {(["QR", "BARCODE"] as const).map((kind) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    onClick={() => setHtmlDraft((h) => `${h}\n{${kind}:Column}`)}
+                    title={`Inserts {${kind}:Column} — replace Column with a data column or a {Col}-templated URL`}
+                    className="px-2.5 py-1 text-xs font-mono bg-amber-50 text-amber-700 border border-amber-200 rounded-md hover:bg-amber-100 transition-colors"
+                  >
+                    {`+{${kind}:Column}`}
+                  </button>
+                ))}
               </div>
             </div>
           )}

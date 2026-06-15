@@ -33,3 +33,5 @@ boto3
 psycopg2-binary
 gunicorn
 phonenumbers
+qrcode[pil]
+python-barcode

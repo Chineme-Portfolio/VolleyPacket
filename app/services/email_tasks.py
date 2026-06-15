@@ -7,6 +7,7 @@ from app.services.jobs import Job
 from app.services.generator import safe_filename
 from app.services.email_providers import EmailProvider, EmailMessage
 from app.services.storage import store, _key_from_local
+from app.services.codes import expand_codes
 from app import config
 
 logger = logging.getLogger(__name__)
@@ -129,6 +130,8 @@ def run_email_send(job: Job, provider: EmailProvider, from_name: str, from_email
                 # --- Render email content with placeholders ---
                 subject_line = _render_subject(email_subject_tpl, row_dict)
                 body_html = _render_body(email_body_tpl, row_dict)
+                # Expand {QR:…}/{BARCODE:…} into hosted code images (clients block data: images).
+                body_html = expand_codes(body_html, row_dict, mode="url", base_url=config.PUBLIC_API_URL)
 
                 try:
                     message = EmailMessage(

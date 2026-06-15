@@ -32,6 +32,20 @@ pdf_bytes = HTML(string=html_content, base_url=base_dir).write_pdf()
 
 ---
 
+## QR codes & barcodes (qrcode + python-barcode)
+
+`app/services/codes.py` is the single home for code generation and the `{QR:…}` / `{BARCODE:…}` template tokens. `expand_codes(html, row, *, mode)` replaces each token with an `<img>`.
+
+**Rules & gotchas:**
+- **Author syntax:** `{QR:payload}` / `{BARCODE:payload}`. Payload resolution: contains `{Col}` → templated (URLs); a bare column name present in the row → that value; else literal.
+- **Two delivery modes:** `mode="datauri"` (PDF + on-screen preview — reliable in WeasyPrint) vs `mode="url"` (email — clients block `data:` images, so it points at the public signed `/codes/{qr,barcode}` endpoint built from `config.PUBLIC_API_URL`). **Set `PUBLIC_API_URL` in prod** or email codes fall back to `data:` URIs and break in Gmail.
+- **Signing:** code URLs carry `sig=HMAC(SECRET_KEY, "kind:data")`; the `/codes` route rejects bad sigs, so it isn't an open generator and stays stateless (no storage — safe on the ephemeral FS / 2 workers).
+- **Code128** for barcodes (alphanumeric); QR via `qrcode[pil]`. Both need Pillow (already present).
+- **`codes.py` must NOT import `template_renderer`** (which imports WeasyPrint) — it inlines its own `_fill` so the `/codes` route and email path stay light. Keep it that way.
+- **Placeholders:** the `QR:`/`BARCODE:` wrapper is kept out of merge fields by the colon, but `extract_placeholders` separately adds a bare `{QR:Col}`'s column so it still gets column-mapped. Don't put `{QR:…}` tokens in a template's `placeholders` array.
+
+---
+
 ## pandas + openpyxl (spreadsheet ingestion)
 
 The single most important rule in this project's data layer:
