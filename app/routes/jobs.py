@@ -23,6 +23,7 @@ from app.services.report_tasks import generate_report
 from app.services.storage import store
 from app.services.ai_generator import edit_template_with_ai, extract_placeholders, draft_email_with_ai, draft_sms_with_ai
 from app.services.template_renderer import fill_placeholders, render_html_preview, add_preview_page_margins
+from app.services.codes import expand_codes
 from app.dependencies import get_current_user
 from app.database import UserRow, EmailSettingsRow, SMSSettingsRow, get_session
 from app.services.encryption import decrypt_credentials
@@ -381,6 +382,7 @@ def attach_template(job_id: str, request: AttachTemplateRequest, user: UserRow =
     # Reset column mapping confirmation when template changes (new placeholders)
     job.column_mapping_confirmed = False
     job.save()
+    job.clear_generated_pdfs()  # template changed → previously rendered PDFs are stale
     return {"message": "Template attached", "template_id": job.template_id}
 
 
@@ -428,6 +430,7 @@ def save_job_template(job_id: str, req: JobTemplateHtmlRequest, user: UserRow = 
     job.template.placeholders = extract_placeholders(req.html_content)
     job.column_mapping_confirmed = False  # new placeholders may need remapping
     job.save()
+    job.clear_generated_pdfs()  # template changed → previously rendered PDFs are stale
     return job.template.model_dump()
 
 
@@ -474,6 +477,7 @@ def ai_edit_job_template(job_id: str, req: AiEditRequest, user: UserRow = Depend
     job.column_mapping_confirmed = False
     job.set_ai_chat("template", [m.model_dump() for m in req.messages] + [{"role": "assistant", "content": summary}])
     job.save()
+    job.clear_generated_pdfs()  # template changed → previously rendered PDFs are stale
 
     return {"template": job.template.model_dump(), "summary": summary}
 
@@ -497,6 +501,7 @@ def reset_job_template(job_id: str, user: UserRow = Depends(get_current_user)):
     job.template = TemplateConfig(**tpl_config)
     job.column_mapping_confirmed = False
     job.save()
+    job.clear_generated_pdfs()  # template reset → previously rendered PDFs are stale
     return job.template.model_dump()
 
 
@@ -623,7 +628,8 @@ def preview_job_template(job_id: str, user: UserRow = Depends(get_current_user))
 
     rows = _job_sample_rows(job, 1)
     if rows:
-        html = add_preview_page_margins(fill_placeholders(job.template.html_content, rows[0]))
+        html = expand_codes(job.template.html_content, rows[0], mode="datauri")
+        html = add_preview_page_margins(fill_placeholders(html, rows[0]))
     else:
         html = render_html_preview(job.template)  # highlight placeholders when there's no data
     return HTMLResponse(content=html, status_code=200)

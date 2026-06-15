@@ -9,7 +9,7 @@ Update this file after every working session. Any agent reading this should imme
 **Branch:** `v2.0` (default branch for PRs: `main`)
 **Phase:** B — Stabilization (see `roadmap.md`)
 **Current focus:** Nice-to-have features on `v2.0`. Latest: **QR codes & barcodes** — per-recipient `{QR:…}`/`{BARCODE:…}` tokens on PDFs (embedded) and in emails (hosted, signed image endpoint).
-**Last completed:** QR/barcode codes — shared `codes.py` engine (qrcode + python-barcode/Code128), `expand_codes` wired into PDF render/preview + email, public signed `/codes/{qr,barcode}` route, AI taught the tokens, Text/QR/Barcode insert toggles in the editors (this session).
+**Last completed:** QR/barcode codes + the **stale-PDF fix** ([16]) — a template edit now invalidates the job's rendered PDFs (`Job.clear_generated_pdfs()`) so regeneration rebuilds, and the in-job preview renders code tokens (this session).
 **Next:** **Set `PUBLIC_API_URL` on Railway** (required for email codes) → live-verify codes (scan a PDF + an email image) → live-verify Template upgrade + Profile → unified AI seam → Paystack route test.
 
 ---
@@ -60,6 +60,7 @@ The load-bearing decisions and the reasoning — do not re-litigate these withou
 - `{QR:payload}` / `{BARCODE:payload}` render a per-recipient scannable code from row data — on the PDF (embedded `data:` image) and in the email body (hosted signed image). Payload = a column value, a `{Col}`-templated URL, or a literal.
 - New: `app/services/codes.py` (qrcode + python-barcode/Code128, HMAC-signed URLs, `expand_codes`); public stateless `GET /codes/{qr,barcode}` (signed); `config.PUBLIC_API_URL` for the email image src. AI prompts + `extract_placeholders` updated; Text/QR/Barcode insert toggles in `EmailComposer` + `JobTemplateEditor`, insert buttons in `TemplateBuilder`.
 - **Deploy:** set `PUBLIC_API_URL` (this backend's public URL) on Railway so email codes load.
+- Fix [16]: a template edit now **invalidates the job's rendered PDFs** (`Job.clear_generated_pdfs()` from attach/save/ai-edit/reset) so regeneration rebuilds — previously the skip-existing logic served stale PDFs after an edit (a barcode/QR change "didn't take"). Also: the in-job template preview now renders code tokens (was showing literal `{QR:…}`).
 
 ### Template feature upgrade
 - "Use Template" opens New Job with the template preselected (`NewJobModal.initialTemplateId`); `/templates` is now two full-width tabs (Templates | Create); the builder (`TemplateBuilder`) has Ask Volley / HTML / Rich-text tabs over one draft and can build a PDF template from scratch in HTML.

@@ -24,6 +24,7 @@ The diagnostic backbone of this project. VolleyPacket's hard bugs are not random
 | AI rejects an uploaded image | [13] Media-type mismatch |
 | Feature empty/wrong when opened later but fine during the run | [14] Runtime-only attribute lost after DB load |
 | Downloaded log/report is garbled binary ("gibberish"), esp. after redeploy | [15] Corrupt download via presigned redirect |
+| Edited a template but regenerated PDFs don't change (old barcode/QR/content) | [16] Stale rendered PDFs after template edit |
 
 ---
 
@@ -144,6 +145,16 @@ The diagnostic backbone of this project. VolleyPacket's hard bugs are not random
 - **Defense:** for small text/report files, **stream through the API** — `store.ensure_local(key)` then `FileResponse(...)` with `text/csv; charset=utf-8` — never a redirect (`download_job_log`, `get_report` in `app/routes/jobs.py`). Large ZIPs (PDF/photo bundles) keep the presigned path deliberately.
 - **Invariant:** logs and reports are streamed with an explicit content-type + charset, never served via redirect.
 - **Verify:** download a log when the file isn't local (force `ensure_local` to fetch from storage) → bytes match the original CSV exactly.
+
+---
+
+## [16] Stale rendered PDFs after a template edit
+
+- **Symptoms:** you edit a job's template (HTML / Ask Volley / rich text / switch template), regenerate, and the PDFs are unchanged — a barcode/QR or any edit doesn't update; scanning shows the old value. Looks like the edit "didn't save."
+- **Root cause:** PDF generation **skips any row whose PDF already exists** (`pdf_tasks.run_pdf_generation`), and `get_pdf_folder()` **restores the old PDFs from S3 first** — so a re-run renders nothing and serves last time's files. The skip is deliberate (resume partial runs / survive redeploy) but it also masks template changes.
+- **Defense:** a template change must **invalidate** the rendered output — `Job.clear_generated_pdfs()` deletes the PDF folder + ZIP (local + S3) and resets the `pdfs` task to idle via a direct `tasks_json` write (bypassing save()'s terminal-wins merge, like `cancel_task`). Called from every template-mutating route — attach / save / ai-edit / reset (`app/routes/jobs.py`).
+- **Invariant:** editing a job's template clears its previously generated PDFs so the next run rebuilds from the new template.
+- **Verify:** generate PDFs → edit the template → regenerate → the new output reflects the edit (don't open/scan files from before the edit).
 
 ---
 

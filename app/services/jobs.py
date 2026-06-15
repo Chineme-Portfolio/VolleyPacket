@@ -663,6 +663,46 @@ class Job:
         except Exception:
             pass
 
+    def clear_generated_pdfs(self):
+        """Invalidate this job's rendered PDFs so the next generation rebuilds them.
+
+        PDF generation skips any row whose PDF already exists (and get_pdf_folder restores
+        them from S3 first), so without this a template change would keep serving stale
+        PDFs. Call after any template edit. Deletes the files (local + S3 + ZIP) and resets
+        the pdfs task to idle via a DIRECT tasks_json write — save()'s merge keeps a terminal
+        'complete', so we bypass it the same way cancel_task does.
+        """
+        try:
+            store.delete_dir(f"output/pdfs_{self.job_id}")
+        except Exception as e:
+            logger.warning(f"clear_generated_pdfs: failed to clear PDFs for {self.job_id}: {e}")
+        for suffix in ("", "_partial"):
+            try:
+                store.delete(f"output/pdfs_{self.job_id}{suffix}.zip")
+            except Exception:
+                pass
+        self.pdf_folder = None
+
+        # Reset the pdfs task to idle (only if it ever ran) so the UI prompts regeneration.
+        from app.models import TaskStatus
+        from app.database import get_session, JobRow
+        session = get_session()
+        try:
+            row = session.get(JobRow, self.job_id)
+            if row:
+                tasks = json.loads(row.tasks_json) if row.tasks_json else {}
+                if "pdfs" in tasks:
+                    tasks["pdfs"] = TaskStatus().model_dump()
+                    row.tasks_json = json.dumps(tasks)
+                    session.commit()
+                    with self._lock:
+                        self.tasks["pdfs"] = TaskStatus()
+        except Exception as e:
+            session.rollback()
+            logger.error(f"clear_generated_pdfs: failed to reset pdfs task for {self.job_id}: {e}")
+        finally:
+            session.close()
+
 
 # --- JOB STORE (always reads from DB — no in-memory cache) ---
 #
