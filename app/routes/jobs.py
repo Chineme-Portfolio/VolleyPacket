@@ -3,6 +3,7 @@ import csv
 import json
 import uuid
 import asyncio
+from typing import Optional
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query, Depends
 from fastapi.responses import FileResponse, HTMLResponse
