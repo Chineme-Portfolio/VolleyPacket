@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Template, updateTemplateVisibility, deleteTemplate, downloadTemplatePdf, fetchAPI } from "@/lib/api";
 import { friendlyError } from "@/lib/errors";
 import { useToast } from "@/components/Toast";
+import Avatar from "@/components/Avatar";
 
 interface TemplateCardProps {
   template: Template;
@@ -150,7 +151,10 @@ export default function TemplateCard({ template, onUpdate }: TemplateCardProps) 
           <h3 className="font-semibold text-gray-900 text-sm">{template.name}</h3>
           <p className="text-xs text-gray-500 mt-1 line-clamp-2">{template.description}</p>
           {!isSystem && !isOwn && (
-            <p className="text-[10px] text-gray-400 mt-1">by {template.owner_name}</p>
+            <div className="flex items-center gap-1.5 mt-1.5">
+              <Avatar avatar={template.owner_avatar} name={template.owner_name} userId={template.owner_id} size={18} />
+              <p className="text-[10px] text-gray-400">by {template.owner_name}</p>
+            </div>
           )}
           <div className="flex items-center gap-2 mt-3">
             <button

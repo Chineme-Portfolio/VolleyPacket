@@ -112,3 +112,23 @@ def get_user_by_id(user_id: str) -> UserRow | None:
         return session.get(UserRow, user_id)
     finally:
         session.close()
+
+
+def update_user(user_id: str, **fields) -> UserRow | None:
+    """Update arbitrary columns on a user. Returns the refreshed row, or None if not found."""
+    session = get_session()
+    try:
+        user = session.get(UserRow, user_id)
+        if not user:
+            return None
+        for key, value in fields.items():
+            if hasattr(user, key):
+                setattr(user, key, value)
+        session.commit()
+        session.refresh(user)
+        return user
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()

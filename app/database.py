@@ -29,6 +29,8 @@ class UserRow(Base):
     auth_provider = Column(String, nullable=False, default="local")  # "local" or "google"
     tier = Column(String, nullable=False, default="free")  # "free", "classic", "pro"
     region = Column(String, nullable=True)  # ISO country code: "NG", "US", etc.
+    username = Column(String, nullable=True)  # display name; null → email-prefix fallback
+    avatar = Column(String, nullable=True)    # "preset:<id>" | "upload:<ver>" | null
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
@@ -120,6 +122,7 @@ class TemplateRow(Base):
     description = Column(String, nullable=False, default="")
     owner_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)  # null = system template
     owner_name = Column(String, nullable=False, default="VolleyPacket")  # display name
+    owner_avatar = Column(String, nullable=True)  # denormalized owner avatar (mirrors owner_name)
     visibility = Column(String, nullable=False, default="private")  # "private" or "public"
     tier_required = Column(String, nullable=False, default="free")  # "free", "classic", "pro"
     config_json = Column(Text, nullable=False)  # full template JSON

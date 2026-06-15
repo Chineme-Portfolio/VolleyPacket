@@ -54,6 +54,7 @@ export interface Template {
   description: string;
   owner_id: string | null;
   owner_name: string;
+  owner_avatar: string | null;
   visibility: string;
   tier_required: string;
   is_own: boolean;
@@ -391,6 +392,40 @@ export async function resumeSubscription(): Promise<{ message: string; cancel_at
 
 export async function deleteAccount(): Promise<{ message: string }> {
   return fetchJSON("/auth/me", { method: "DELETE" });
+}
+
+
+// ── Profile ──────────────────────────────────────────────────────────
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  auth_provider: string;
+  tier: string;
+  username: string;
+  avatar: string | null;
+}
+
+/** Update display name and/or avatar. Send only the field(s) you're changing. */
+export async function updateProfile(fields: { username?: string; avatar?: string }): Promise<UserProfile> {
+  return fetchJSON("/auth/me", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fields),
+  });
+}
+
+/** Upload a custom avatar image (PNG/JPEG/WEBP); the server normalizes it to a square PNG. */
+export async function uploadAvatar(file: File): Promise<UserProfile> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetchAPI("/auth/me/avatar", { method: "POST", body: form });
+  return res.json();
+}
+
+/** Public URL for a user's uploaded avatar (only valid when their avatar is an upload). */
+export function avatarUrl(userId: string, version?: string): string {
+  return `${API_BASE}/auth/avatar/${userId}${version ? `?v=${encodeURIComponent(version)}` : ""}`;
 }
 
 

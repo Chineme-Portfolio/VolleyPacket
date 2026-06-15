@@ -36,6 +36,7 @@ class TemplateResponse(BaseModel):
     description: str
     owner_id: Optional[str] = None
     owner_name: str = "VolleyPacket"
+    owner_avatar: Optional[str] = None
     visibility: str = "private"
     tier_required: str = "free"
     is_own: bool = False
@@ -138,6 +139,7 @@ def list_templates(
                 description=row.description,
                 owner_id=row.owner_id,
                 owner_name=row.owner_name,
+                owner_avatar=row.owner_avatar,
                 visibility=row.visibility,
                 tier_required=row.tier_required,
                 is_own=row.owner_id == user.id,
@@ -243,7 +245,8 @@ def save_template(request: SaveTemplateRequest, user: UserRow = Depends(get_curr
                 name=template.name,
                 description=template.description,
                 owner_id=user.id,
-                owner_name=user.email.split("@")[0],
+                owner_name=(getattr(user, "username", None) or "").strip() or user.email.split("@")[0],
+                owner_avatar=getattr(user, "avatar", None),
                 visibility="private",
                 tier_required="free",
                 config_json=json.dumps(template.model_dump()),

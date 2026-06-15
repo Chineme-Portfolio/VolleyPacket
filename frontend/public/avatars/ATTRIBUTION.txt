@@ -1,0 +1,10 @@
+Preset avatar artwork
+=====================
+
+Animal and alien avatars (koala, panda, bear, kangaroo, dog, cat, mouse, alien)
+are from Twemoji — https://github.com/jdecked/twemoji
+Copyright Twitter, Inc and other contributors.
+Graphics licensed under CC-BY 4.0: https://creativecommons.org/licenses/by/4.0/
+
+The silhouette avatars (silhouette-male, silhouette-female, silhouette-nb)
+are original artwork for VolleyPacket.

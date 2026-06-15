@@ -10,10 +10,13 @@ import NewJobModal from "@/components/NewJobModal";
 import { getTemplates, getJobs, Template, Job } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { friendlyError } from "@/lib/errors";
+import { useAuth } from "@/lib/auth";
+import Avatar from "@/components/Avatar";
 
 export default function Dashboard() {
   const router = useRouter();
   const { toast } = useToast();
+  const { user } = useAuth();
   const [templates, setTemplates] = useState<Template[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,9 +54,20 @@ export default function Dashboard() {
     <div>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6 sm:mb-8">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-gray-500 mt-1 text-sm">Generate, send, and track documents with ease.</p>
+        <div className="flex items-center gap-3 min-w-0">
+          <Avatar
+            avatar={user?.avatar}
+            name={user?.username || user?.email}
+            userId={user?.id}
+            size={44}
+            className="hidden sm:flex"
+          />
+          <div className="min-w-0">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 truncate">
+              Welcome back{user?.username ? `, ${user.username}` : ""}
+            </h1>
+            <p className="text-gray-500 mt-1 text-sm">Generate, send, and track documents with ease.</p>
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <button

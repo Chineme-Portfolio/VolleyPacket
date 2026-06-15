@@ -8,9 +8,9 @@ Update this file after every working session. Any agent reading this should imme
 
 **Branch:** `v2.0` (default branch for PRs: `main`)
 **Phase:** B — Stabilization (see `roadmap.md`)
-**Current focus:** Stabilization audit — **delivery report + log downloads** fixed and upgraded (multi-channel, accurate, streamed). Open from Phase B: **testing the Paystack route end-to-end** (checkout → webhook → tier change).
-**Last completed:** Report/log audit — fixed the "successful sends in the failure sheet" bug + the gibberish downloads; report now covers email/SMS/PDF/photos, available once any task completes (this session).
-**Next:** Live-verify the report + log downloads on a real backend → live-verify SMS providers (Feature 3) → the unified AI seam → Paystack route test.
+**Current focus:** Nice-to-have features on `v2.0`. Latest: **Profile customization** — display name + avatar (upload or preset), shown on the dashboard + public templates; delete-account moved to `/profile`.
+**Last completed:** Profile customization — `users.username`/`users.avatar`/`templates.owner_avatar`, profile endpoints (`PATCH /auth/me`, avatar upload, public avatar serve), shared `Avatar` component + `/profile` page; dead Topbar search removed (this session).
+**Next:** Live-verify Profile (set name/avatar, confirm it on a public template) → live-verify the report + log downloads → SMS providers (Feature 3) → unified AI seam → Paystack route test.
 
 ---
 
@@ -48,12 +48,17 @@ The load-bearing decisions and the reasoning — do not re-litigate these withou
 - **AI model tiering via a thin per-task seam (planned).** Template generation/editing → top-tier model (quality-critical, low-frequency, the core output); email/SMS drafting → cheap model (low-stakes, user-edited). One `ai` seam holds a *static* task→model map + a real `messages[]` conversation contract — **client-replayed, backend stateless** (no server-side conversation state; that would be another multi-worker consistency surface) — plus centralized prompt caching, JSON-repair, and AI-quota checks. Earned now (≥2 real tiers across 4 call sites: template-gen, in-job edit, email, SMS) — but **not** a dynamic router. Vehicle TBD: OpenRouter (best-of-breed mix, keep Claude for templates) vs single-vendor Gemini (Pro + Flash-Lite). Template-tier quality comes from a WeasyPrint-aware prompt + render-check, not model tier alone. Full design in `architecture.md` § AI Generation & Model Tiering.
 - **In-job template editing shipped ahead of the AI seam, on a focused edit function.** Rather than block the feature on the full seam refactor, `edit_template_with_ai()` uses the existing Anthropic client directly with the AI-quota pair and the `messages[]`/edit-don't-regenerate/fork-don't-mutate rules already honored. When the seam lands it should *absorb* this call site (and email/SMS) — the model id already lives in one place (`config.AI_MODEL_TEMPLATE_EDIT`). The job-local fork is stored in `JobRow.template_json`; rendering is unchanged because PDF generation already reads `job.template`.
 - **The in-job template editor is edit-only.** Ask Volley in the job's template editor only makes incremental edits — from-scratch / "brand new template" requests are declined and redirected to the Templates tab (the full generator). Rationale: the editor forks a job-local template to *tweak*; full regeneration belongs in the builder, and a "brand new template" ask was returning a chatty, hard-to-parse response. Enforced in `EDIT_SYSTEM_PROMPT` (`ai_generator.py`); AI JSON parsing is also prose/fence-tolerant (`_parse_ai_json`, extracts the outermost `{...}`).
+- **Profile = display name + avatar; attribution is denormalized.** `username` is a free **display name** (not a unique handle; defaults to the email local-part) — attribution, not a login. Template authorship is denormalized onto `TemplateRow.owner_name`/`owner_avatar` (set at save; re-synced to all of a user's templates on profile change via `auth._propagate_owner`), mirroring the existing `owner_name` pattern — avoids a users-join on every template list. Avatar is one string: `preset:<id>` (client renders a bundled SVG) or `upload:<ver>` (256² PNG via Pillow, served publicly at `GET /auth/avatar/{id}` so it shows on others' public cards; `<ver>` busts caches). Presets = Twemoji animal/alien SVGs (CC-BY) in `public/avatars/` + 3 original silhouettes; the avatar serve uses `store.serve_inline` (presigned-redirect for S3 is fine for `<img>`, unlike the fetch→blob download path).
 
 ---
 
 ## Changelog (recent, newest first)
 
-### Billing hardening (current)
+### Profile customization (current)
+- Display name (free, email-prefix default) + avatar (upload → 256² PNG, or preset) — shown on the dashboard greeting, the Topbar (now links to `/profile`), and as the author on public templates.
+- Additive: `users.username`, `users.avatar`, `templates.owner_avatar`. New routes: `PATCH /auth/me`, `POST /auth/me/avatar`, public `GET /auth/avatar/{id}`. Shared `Avatar` + `lib/avatars.ts` (Twemoji SVGs + 3 silhouettes). Delete-account moved to `/profile`; dead Topbar search removed.
+
+### Billing hardening
 - `009abc9` feat: subscription cancel/resume + account deletion
 - `7532883` fix: parse Stripe webhook payload as plain JSON dicts
 - `345ca24` fix: harden Stripe checkout webhook handler, add diagnostic logging

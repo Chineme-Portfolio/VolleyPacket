@@ -8,6 +8,8 @@ interface User {
   email: string;
   auth_provider: string;
   tier: string;
+  username: string;
+  avatar: string | null;
 }
 
 interface AuthContextType {
@@ -18,6 +20,7 @@ interface AuthContextType {
   signup: (email: string, password: string) => Promise<void>;
   googleLogin: (idToken: string) => Promise<void>;
   logout: () => void;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -72,6 +75,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setToken(null);
     } finally {
       setLoading(false);
+    }
+  }
+
+  // Re-hydrate the current user from the server (after profile edits)
+  async function refreshUser() {
+    const t = token || (typeof window !== "undefined" ? localStorage.getItem("vp_token") : null);
+    if (!t) return;
+    try {
+      const res = await fetch(`${API_BASE}/auth/me`, {
+        headers: { Authorization: `Bearer ${t}` },
+      });
+      if (res.ok) setUser(await res.json());
+    } catch {
+      /* keep the existing user on a transient failure */
     }
   }
 
@@ -136,7 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, signup, googleLogin, logout }}>
+    <AuthContext.Provider value={{ user, token, loading, login, signup, googleLogin, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

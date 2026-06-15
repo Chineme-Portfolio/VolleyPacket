@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useAuth } from "@/lib/auth";
+import Avatar from "@/components/Avatar";
 
 interface TopbarProps {
   onMenuToggle: () => void;
@@ -9,13 +11,9 @@ interface TopbarProps {
 export default function Topbar({ onMenuToggle }: TopbarProps) {
   const { user, logout } = useAuth();
 
-  const initials = user?.email
-    ? user.email.slice(0, 2).toUpperCase()
-    : "VP";
-
   return (
     <header className="h-14 sm:h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 sm:px-6 lg:px-8">
-      {/* Left: hamburger + search */}
+      {/* Left: hamburger */}
       <div className="flex items-center gap-3 flex-1 min-w-0">
         {/* Hamburger — mobile only */}
         <button
@@ -26,19 +24,6 @@ export default function Topbar({ onMenuToggle }: TopbarProps) {
             <path d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
-
-        {/* Search */}
-        <div className="hidden sm:flex items-center gap-2 bg-gray-100 rounded-xl px-4 py-2 w-full max-w-xs lg:max-w-sm">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2">
-            <circle cx="11" cy="11" r="8" />
-            <path d="M21 21l-4.35-4.35" />
-          </svg>
-          <input
-            type="text"
-            placeholder="Search..."
-            className="bg-transparent text-sm text-gray-700 placeholder-gray-400 outline-none flex-1 min-w-0"
-          />
-        </div>
       </div>
 
       {/* Right side */}
@@ -51,15 +36,17 @@ export default function Topbar({ onMenuToggle }: TopbarProps) {
           </svg>
         </button>
 
-        {/* User */}
+        {/* User → profile */}
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full bg-green-700 flex items-center justify-center text-white text-sm font-semibold">
-            {initials}
-          </div>
-          <div className="hidden lg:block">
-            <p className="text-sm font-semibold text-gray-900 max-w-[160px] truncate">
-              {user?.email || "VolleyPacket"}
-            </p>
+          <Link href="/profile" title="Your profile" className="flex-shrink-0">
+            <Avatar avatar={user?.avatar} name={user?.username || user?.email} userId={user?.id} size={36} />
+          </Link>
+          <div className="hidden lg:block leading-tight">
+            <Link href="/profile">
+              <p className="text-sm font-semibold text-gray-900 max-w-[160px] truncate hover:text-green-800 transition-colors">
+                {user?.username || user?.email || "VolleyPacket"}
+              </p>
+            </Link>
             <button
               onClick={logout}
               className="text-xs text-gray-500 hover:text-red-600 transition-colors"

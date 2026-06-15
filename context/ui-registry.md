@@ -22,11 +22,14 @@ Layout switchboard wrapped around every page by the root layout. Renders Sidebar
 ### Sidebar — `components/Sidebar.tsx` (179 lines)
 App navigation: Dashboard, Jobs, Templates, Settings, Guides. Dark-green brand treatment; active item highlighted. Includes logo block and sign-out affordance.
 
-### Topbar — `components/Topbar.tsx` (74 lines)
-Header bar for app pages: page context + user menu. White bar over the gray app background.
+### Topbar — `components/Topbar.tsx`
+Header bar for app pages. The user block (shared `Avatar` + display name) is a `<Link>` to `/profile`; "Sign out" sits beneath it. White bar over the gray app background. (The dead placeholder search box was removed.)
 
 ### Logo — `components/Logo.tsx` (73 lines)
 Brand logo with optional animation variants (`logo-spin-z`, `logo-float` keyframes from globals.css). Used in Sidebar, landing hero, auth pages.
+
+### Avatar — `components/Avatar.tsx`
+Shared user-avatar primitive. Renders, in priority: a **preset** (`preset:<id>` → bundled SVG at `/avatars/<id>.svg`), an **uploaded** image (`upload:<ver>` → public `GET /auth/avatar/{userId}?v=<ver>`), or **initials** (from `name`, else "VP"). Props `{avatar, name, userId, size, className}`. Preset ids/labels live in `lib/avatars.ts` (animals + alien from Twemoji SVGs in `public/avatars/`; 3 original silhouettes). Used by Topbar, dashboard, profile, TemplateCard.
 
 ---
 
@@ -84,8 +87,8 @@ Thin CodeMirror 6 wrapper (`@uiw/react-codemirror` + `@codemirror/lang-html`) fo
 ### TemplateSelector — `components/TemplateSelector.tsx` (110 lines)
 Browse/pick a template to attach to a job (calls `attachTemplate()`). Tier-gated templates surface the backend's access error. Changing an already-attached template re-forks the job copy, so it now `confirm()`s first (in-job edits would be discarded — see JobTemplateEditor).
 
-### TemplateCard — `components/TemplateCard.tsx` (244 lines)
-Single template card on /templates: name, description, owner, visibility/tier marker, preview + download + delete + publish/unpublish actions (`downloadTemplatePdf()`, `updateTemplateVisibility()`, `deleteTemplate()`).
+### TemplateCard — `components/TemplateCard.tsx`
+Single template card on /templates: name, description, owner (shared `Avatar` from `template.owner_avatar` + "by {owner_name}"), visibility/tier marker, preview + download + delete + publish/unpublish actions (`downloadTemplatePdf()`, `updateTemplateVisibility()`, `deleteTemplate()`).
 
 ### PdfPreviewModal — `components/PdfPreviewModal.tsx` (43 lines)
 Modal iframe preview of generated template HTML/PDF (data-URL from `previewGeneratedTemplate()`).
@@ -107,6 +110,8 @@ Google Identity Services button → id_token → `POST /auth/google-login` via a
 - `app/jobs/[id]/page.tsx` — job detail orchestrator: owns the SSE `EventSource` subscription to `/jobs/{id}/stream`, distributes `TaskStatus` to the four TaskPanels, hosts JobModeSelector / TemplateSelector / ColumnMapper / composers / downloads.
 - `app/settings/billing/page.tsx` — tier cards from `getTiers(region)`, checkout/portal/cancel/resume flows.
 - `app/settings/email/page.tsx` — provider presets (Resend, SendGrid, Gmail, Outlook, Zoho, custom SMTP) + credential form.
+- `app/settings/page.tsx` — settings hub (Profile, Email, SMS, Billing). Static server component; the delete-account Danger Zone moved to `/profile`.
+- `app/profile/page.tsx` — profile customization: display-name editor (`updateProfile`), avatar upload (`uploadAvatar`) + preset picker grid (`lib/avatars.ts` + `Avatar`), and the account Danger Zone (delete account). Reached from the Topbar user block and the Settings hub.
 - `app/page.tsx` — landing page (hero with demo.mp4, animated logo, feature sections, SEO JSON-LD in layout).
 
 ---
