@@ -7,9 +7,11 @@ import { friendlyError } from "@/lib/errors";
 interface NewJobModalProps {
   onClose: () => void;
   onCreated: (jobId: string) => void;
+  /** Preselect this template (e.g. opened via a card's "Use Template"). */
+  initialTemplateId?: string;
 }
 
-export default function NewJobModal({ onClose, onCreated }: NewJobModalProps) {
+export default function NewJobModal({ onClose, onCreated, initialTemplateId }: NewJobModalProps) {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loadingTemplates, setLoadingTemplates] = useState(true);
 
@@ -24,11 +26,15 @@ export default function NewJobModal({ onClose, onCreated }: NewJobModalProps) {
     getTemplates()
       .then((t) => {
         setTemplates(t);
-        if (t.length > 0) setSelectedTemplate(t[0].id);
+        if (initialTemplateId && t.some((tpl) => tpl.id === initialTemplateId)) {
+          setSelectedTemplate(initialTemplateId);
+        } else if (t.length > 0) {
+          setSelectedTemplate(t[0].id);
+        }
       })
       .catch((err: unknown) => setError(friendlyError(err)))
       .finally(() => setLoadingTemplates(false));
-  }, []);
+  }, [initialTemplateId]);
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {

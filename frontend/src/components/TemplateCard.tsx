@@ -9,9 +9,11 @@ import Avatar from "@/components/Avatar";
 interface TemplateCardProps {
   template: Template;
   onUpdate?: () => void;
+  /** Called when "Use Template" is clicked — opens New Job with this template preselected. */
+  onUseTemplate?: (templateId: string) => void;
 }
 
-export default function TemplateCard({ template, onUpdate }: TemplateCardProps) {
+export default function TemplateCard({ template, onUpdate, onUseTemplate }: TemplateCardProps) {
   const { toast } = useToast();
   const [showPreview, setShowPreview] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -188,7 +190,10 @@ export default function TemplateCard({ template, onUpdate }: TemplateCardProps) 
                 </svg>
               )}
             </button>
-            <button className="flex-1 text-center text-xs font-medium py-2 rounded-xl bg-green-800 text-white hover:bg-green-900 transition-colors">
+            <button
+              onClick={() => onUseTemplate?.(template.id)}
+              className="flex-1 text-center text-xs font-medium py-2 rounded-xl bg-green-800 text-white hover:bg-green-900 transition-colors"
+            >
               Use Template
             </button>
           </div>

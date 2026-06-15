@@ -18,6 +18,7 @@ from typing import Optional
 
 from app.models import TemplateConfig, SaveTemplateRequest
 from app.services.template_renderer import render_preview, render_html_preview
+from app.services.ai_generator import extract_placeholders
 from app.services.storage import store
 from app.database import get_session, UserRow, TemplateRow
 from app.dependencies import get_current_user
@@ -222,6 +223,10 @@ def save_template(request: SaveTemplateRequest, user: UserRow = Depends(get_curr
     """Save or update a template. New templates are owned by the current user."""
     template = request.template
     template_id = template.id
+
+    # Derive placeholders from the HTML so hand-built / HTML-edited templates are
+    # always correct regardless of what the client sent.
+    template.placeholders = extract_placeholders(template.html_content)
 
     session = get_session()
     try:

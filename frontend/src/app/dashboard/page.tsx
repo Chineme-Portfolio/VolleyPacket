@@ -21,6 +21,7 @@ export default function Dashboard() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNewJob, setShowNewJob] = useState(false);
+  const [useTemplateId, setUseTemplateId] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -123,7 +124,14 @@ export default function Dashboard() {
           ) : (
             <div className="space-y-4">
               {templates.map((t) => (
-                <TemplateCard key={t.id} template={t} />
+                <TemplateCard
+                  key={t.id}
+                  template={t}
+                  onUseTemplate={(templateId) => {
+                    setUseTemplateId(templateId);
+                    setShowNewJob(true);
+                  }}
+                />
               ))}
             </div>
           )}
@@ -132,9 +140,14 @@ export default function Dashboard() {
 
       {showNewJob && (
         <NewJobModal
-          onClose={() => setShowNewJob(false)}
+          initialTemplateId={useTemplateId ?? undefined}
+          onClose={() => {
+            setShowNewJob(false);
+            setUseTemplateId(null);
+          }}
           onCreated={(jobId) => {
             setShowNewJob(false);
+            setUseTemplateId(null);
             router.push(`/jobs/${jobId}`);
           }}
         />

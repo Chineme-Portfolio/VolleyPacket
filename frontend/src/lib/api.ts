@@ -141,6 +141,19 @@ export async function previewGeneratedTemplate(
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }
 
+/** Refine a draft template via AI (edit, don't regenerate) — for the new-template builder. */
+export async function aiEditTemplate(
+  htmlContent: string,
+  messages: { role: "user" | "assistant"; content: string }[],
+  columns?: string[],
+): Promise<{ html_content: string; summary: string }> {
+  return fetchJSON("/generate-template/edit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ html_content: htmlContent, messages, columns }),
+  });
+}
+
 export interface UploadResponse {
   file_id: string;
   filename: string;

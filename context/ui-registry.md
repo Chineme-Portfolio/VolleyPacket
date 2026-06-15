@@ -45,8 +45,8 @@ Compact list of the latest jobs with status badges (`statusBadge()`) linking to 
 
 ## Jobs flow
 
-### NewJobModal — `components/NewJobModal.tsx` (203 lines)
-Job creation flow in a modal (standard overlay pattern): candidate file upload (Excel/CSV) → calls `createJob()` → routes to the new job. Handles upload validation errors (tier limits surface here as friendly messages from `detail`).
+### NewJobModal — `components/NewJobModal.tsx`
+Job creation flow in a modal (standard overlay pattern): candidate file upload (Excel/CSV) + template select → `createJob()` → `attachTemplate()` → routes to the new job. Optional `initialTemplateId` prop preselects the template (used by a card's "Use Template"). Handles upload validation errors (tier limits surface here as friendly messages from `detail`).
 
 ### JobModeSelector — `components/JobModeSelector.tsx` (107 lines)
 Choose `dynamic_pdf` / `static_attachment` / `email_only`. Static mode includes the static-attachment file input. Calls `setJobMode()`.
@@ -88,7 +88,10 @@ Thin CodeMirror 6 wrapper (`@uiw/react-codemirror` + `@codemirror/lang-html`) fo
 Browse/pick a template to attach to a job (calls `attachTemplate()`). Tier-gated templates surface the backend's access error. Changing an already-attached template re-forks the job copy, so it now `confirm()`s first (in-job edits would be discarded — see JobTemplateEditor).
 
 ### TemplateCard — `components/TemplateCard.tsx`
-Single template card on /templates: name, description, owner (shared `Avatar` from `template.owner_avatar` + "by {owner_name}"), visibility/tier marker, preview + download + delete + publish/unpublish actions (`downloadTemplatePdf()`, `updateTemplateVisibility()`, `deleteTemplate()`).
+Single template card on /templates: name, description, owner (shared `Avatar` from `template.owner_avatar` + "by {owner_name}"), visibility/tier marker, preview + download + delete + publish/unpublish actions (`downloadTemplatePdf()`, `updateTemplateVisibility()`, `deleteTemplate()`). The "Use Template" button fires the optional `onUseTemplate(id)` callback (parent opens `NewJobModal` preselected).
+
+### TemplateBuilder — `components/TemplateBuilder.tsx`
+The "Create" tab on /templates — builds a NEW library template. One shared draft (`{id, name, description, html_content}`) edited via three tabs (mirrors `JobTemplateEditor`): **Ask Volley** (`AskVolleyChat`; empty draft → `generateTemplate`, existing draft → `aiEditTemplate` refine; optional doc/image attach feeds `parsedContents`), **HTML** (lazy `HtmlCodeEditor` + `lib/templateImages` strip/inject; seeds an A4 skeleton for from-scratch), **Rich text** (iframe `srcDoc` + `execCommand`, full-doc safe). Switching tabs commits the editor into the draft; side **preview** via `previewGeneratedTemplate`; one **Save to library** (`saveTemplate`, backend re-extracts placeholders) → `onSaved`. Chat persists in `localStorage` (`vp_template_chat`).
 
 ### PdfPreviewModal — `components/PdfPreviewModal.tsx` (43 lines)
 Modal iframe preview of generated template HTML/PDF (data-URL from `previewGeneratedTemplate()`).
@@ -108,6 +111,7 @@ Google Identity Services button → id_token → `POST /auth/google-login` via a
 ## Pages with notable inline UI (no extracted component)
 
 - `app/jobs/[id]/page.tsx` — job detail orchestrator: owns the SSE `EventSource` subscription to `/jobs/{id}/stream`, distributes `TaskStatus` to the four TaskPanels, hosts JobModeSelector / TemplateSelector / ColumnMapper / composers / downloads.
+- `app/templates/page.tsx` — two full-width top-level tabs: **Templates** (gallery with all/mine/public/system filter pills; cards' "Use Template" opens a page-owned `NewJobModal` preselected) and **Create** (`TemplateBuilder`).
 - `app/settings/billing/page.tsx` — tier cards from `getTiers(region)`, checkout/portal/cancel/resume flows.
 - `app/settings/email/page.tsx` — provider presets (Resend, SendGrid, Gmail, Outlook, Zoho, custom SMTP) + credential form.
 - `app/settings/page.tsx` — settings hub (Profile, Email, SMS, Billing). Static server component; the delete-account Danger Zone moved to `/profile`.
