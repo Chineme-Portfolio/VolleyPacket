@@ -236,7 +236,10 @@ export default function TemplateBuilder({ onSaved }: TemplateBuilderProps) {
     if (!text || generating) return;
     setInput("");
 
-    const base = draft ? currentHtml() : "";
+    const liveHtml = draft ? currentHtml() : "";
+    // A blank draft or the untouched starter skeleton means "create from scratch" —
+    // only an authored/generated template should route to the refine (edit) path.
+    const startFresh = !liveHtml.trim() || liveHtml === SKELETON;
     const transcript = messages
       .filter((m) => (m.role === "user" || m.role === "assistant") && m.id !== "welcome" && m.text)
       .map((m) => ({ role: m.role as "user" | "assistant", content: m.text }));
@@ -251,7 +254,7 @@ export default function TemplateBuilder({ onSaved }: TemplateBuilderProps) {
       let name: string | undefined;
       let description: string | undefined;
 
-      if (!base.trim()) {
+      if (startFresh) {
         const parsedContents = uploadedDocs.length
           ? uploadedDocs.map((d) => ({ raw_text: d.raw_text, ...d.detected_fields, image_intent: d.imageIntent }))
           : [{ raw_text: text, detected_fields: {} }];
@@ -263,7 +266,7 @@ export default function TemplateBuilder({ onSaved }: TemplateBuilderProps) {
         summary = `Created **${name}** — see the preview. Refine here, fine-tune in HTML / Rich text, then Save.`;
         setUploadedDocs([]);
       } else {
-        const r = await aiEditTemplate(base, transcript);
+        const r = await aiEditTemplate(liveHtml, transcript);
         html = r.html_content;
         summary = r.summary || "Updated — see the preview.";
       }

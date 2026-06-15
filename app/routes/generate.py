@@ -81,6 +81,7 @@ def edit_generated_template(req: TemplateEditRequest, user: UserRow = Depends(ge
             columns=req.columns or [],
             sample_rows=[],
             messages=[m.model_dump() for m in req.messages],
+            allow_redesign=True,
         )
         increment_ai_usage(user.id)
         return {"html_content": new_html, "summary": summary}

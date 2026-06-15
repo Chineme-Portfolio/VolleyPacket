@@ -266,11 +266,40 @@ Return ONLY a JSON object:
 The html_content must be the COMPLETE updated document. Return ONLY valid JSON — no markdown, no code fences, no explanation."""
 
 
+# Builder variant: used by the new-template builder (/generate-template/edit). Unlike the
+# in-job editor, the builder IS the place to create templates, so it must NOT refuse
+# brand-new/redesign requests or redirect anywhere — it refines a draft however the user asks.
+BUILDER_EDIT_SYSTEM_PROMPT = """You are helping build an HTML/CSS document template for VolleyPacket, a platform that generates personalized PDF letters and invitations rendered with WeasyPrint.
+
+You are given the CURRENT template HTML (which may be a near-empty starter) and a conversation describing what the user wants. Apply what they ask — anything from a small tweak to a full redesign. The user is actively building this template, so make whatever change they request; never refuse and never tell them to go elsewhere.
+
+RULES:
+- Apply the user's request. For small tweaks, change only what's asked and keep the rest. For a redesign, restructure freely into what the user describes.
+- Keep every {EMBEDDED_IMAGE_N} placeholder (embedded logos/signatures/letterheads) and every {PhotoURL}/{PhotoLink} placeholder (per-row photos) intact unless the user asks to remove that image. NEVER invent or output base64 image data yourself.
+- Keep {Placeholder} merge fields working. If specific spreadsheet columns are provided, use ONLY those as placeholder names; otherwise create sensible {Placeholder} fields for the data the user describes.
+- Keep the document a COMPLETE, single-page HTML document (<!DOCTYPE html> … </html>) with an @page rule for A4 sizing.
+
+WEASYPRINT / PRINT CONSTRAINTS (rendered to PDF, not shown in a browser):
+- All CSS stays in a <style> block in <head>. No external stylesheets, no web fonts.
+- Use only system fonts: Arial, Helvetica, Georgia, Times New Roman, Courier New, Verdana, Tahoma.
+- Avoid CSS WeasyPrint can't render (no reliance on flexbox/grid); prefer tables, block, inline-block, and floats for layout.
+- The result must still fit on ONE page.
+
+OUTPUT FORMAT:
+Return ONLY a JSON object:
+{
+  "html_content": "<!DOCTYPE html>…</html>",
+  "summary": "One short sentence describing what you changed."
+}
+The html_content must be the COMPLETE updated document. Return ONLY valid JSON — no markdown, no code fences, no explanation."""
+
+
 def edit_template_with_ai(
     current_html: str,
     columns: list[str] = None,
     sample_rows: list[dict] = None,
     messages: list[dict] = None,
+    allow_redesign: bool = False,
 ) -> tuple[str, str]:
     """Edit an existing template via AI (edit, don't regenerate).
 
@@ -302,11 +331,17 @@ def edit_template_with_ai(
             pass
     context_block = ("\n\n".join(context_lines) + "\n\n") if context_lines else ""
 
-    base_user = (
-        "Here is the current template you will edit. Apply the change(s) I describe "
-        "next, keeping everything else intact.\n\n"
-        f"{context_block}CURRENT TEMPLATE HTML:\n{stripped_html}"
-    )
+    if allow_redesign:
+        intro = (
+            "Here is the current template (it may be a near-empty starter). Apply what I "
+            "describe next — anything from a small tweak to a full redesign, as I ask.\n\n"
+        )
+    else:
+        intro = (
+            "Here is the current template you will edit. Apply the change(s) I describe "
+            "next, keeping everything else intact.\n\n"
+        )
+    base_user = f"{intro}{context_block}CURRENT TEMPLATE HTML:\n{stripped_html}"
 
     api_messages = [
         {"role": "user", "content": base_user},
@@ -324,7 +359,7 @@ def edit_template_with_ai(
     response = client.messages.create(
         model=config.AI_MODEL_TEMPLATE_EDIT,
         max_tokens=8192,
-        system=EDIT_SYSTEM_PROMPT,
+        system=BUILDER_EDIT_SYSTEM_PROMPT if allow_redesign else EDIT_SYSTEM_PROMPT,
         messages=api_messages,
     )
 
