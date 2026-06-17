@@ -15,12 +15,3 @@ six==1.17.0
 tqdm==4.67.3
 tzdata==2026.1
 urllib3==2.6.3
-fastapi
-uvicorn
-python-multipart
-anthropic
-beautifulsoup4
-PyPDF2
-python-docx
-sqlalchemy
-psycopg2-binary
